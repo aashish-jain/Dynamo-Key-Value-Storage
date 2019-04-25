@@ -17,14 +17,6 @@ public class Request {
     private RequestType requestType;
     private String key, value;
 
-    Request(int senderId, RequestType requestType) {
-        this.senderId = senderId;
-        this.hashedSenderId = SimpleDynamoProvider.generateHash(Integer.toString(senderId));
-        this.requestType = requestType;
-        this.key = null;
-        this.value = null;
-    }
-
     Request(int senderId, String key, String value, RequestType requestType) {
         this.senderId = senderId;
         this.hashedSenderId = SimpleDynamoProvider.generateHash(Integer.toString(senderId));
