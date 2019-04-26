@@ -3,8 +3,9 @@ package edu.buffalo.cse.cse486586.simpledynamo;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.net.InetAddress;
 import java.net.Socket;
+
+import static edu.buffalo.cse.cse486586.simpledynamo.SimpleDynamoProvider.generateHash;
 
 class Client {
     private static final String TAG = "CLIENT";
@@ -13,38 +14,48 @@ class Client {
     private Socket socket;
     private ObjectInputStream ois;
     private ObjectOutputStream oos;
-    boolean connected;
+    private boolean connected;
+    static final int timeout = 500;
 
-    Client(Integer remoteProcessId) {
+    Client(Integer remoteProcessId) throws IOException, NullPointerException {
         /* Establish the connection to server and store it in a Hashmap*/
         connectedId = remoteProcessId;
-        hashedConnectedId = SimpleDynamoProvider.generateHash(remoteProcessId.toString());
+        hashedConnectedId = generateHash(remoteProcessId.toString());
         socket = null;
-        ois = null;
-        oos = null;
-        connected = false;
-    }
-
-    void connect() throws IOException{
-        socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
-                connectedId * 2);
-        socket.setSoTimeout(1000);
+        socket.setSoTimeout(500);
         oos = new ObjectOutputStream(socket.getOutputStream());
         ois = new ObjectInputStream(socket.getInputStream());
         connected = true;
     }
+
     void writeUTF(String stringToWrite) throws IOException {
-        this.oos.writeUTF(stringToWrite);
-        this.oos.flush();
+        try {
+            this.oos.writeUTF(stringToWrite);
+            this.oos.flush();
+        } catch (IOException e){
+            this.connected = false;
+            throw e;
+        }
     }
 
-    String readUTF() throws IOException {
-        return this.ois.readUTF();
+    String readUTF() throws Exception {
+        String readString = null;
+        try {
+            readString = this.ois.readUTF();
+        } catch (IOException e){
+            this.connected = false;
+            throw e;
+        }
+        return readString;
     }
 
-    void sendStatus(boolean status) throws IOException {
-        this.oos.writeBoolean(status);
-        this.oos.flush();
+    void sendStatus(boolean status) throws Exception {
+        try {
+            this.oos.writeBoolean(status);
+            this.oos.flush();
+        } catch (Exception e){
+            this.connected = false;
+        }
     }
 
     boolean readStatus() throws IOException {

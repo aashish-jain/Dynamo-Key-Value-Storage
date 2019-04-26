@@ -7,30 +7,25 @@ import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
-import android.os.StrictMode;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 
-import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Comparator;
 import java.util.Formatter;
 import java.util.HashMap;
-import java.util.TreeMap;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 public class SimpleDynamoProvider extends ContentProvider {
     static KeyValueStorageDBHelper dbHelper;
     static SQLiteDatabase dbWriter, dbReader;
     static final int selfProcessIdLen = 4;
-    static final int[] remotePorts = {5554, 5556, 5558, 5560, 5562};
+    static final Integer[] remotePorts = {5554, 5556, 5558, 5560, 5562};
     static Integer myID;
     static String myHash;
+    static DynamoCommunicator dynamoCommunicator;
 
     static final String DELETE_TAG = "DELETE_TAG", CREATE_TAG = "CREATE_TAG",
             INSERT_TAG = "INSERT_TAG", QUERY_TAG = "QUERY_TAG", FETCH_TAG = "FETCH";
@@ -40,16 +35,11 @@ public class SimpleDynamoProvider extends ContentProvider {
     };
 
     ExecutorService executorService;
-    TreeMap<Integer, Client> clientTreeMap;
+    HashMap<Integer, Client> clientHashMap;
 
     @Override
     public String getType(Uri uri) {
         return "string";
-    }
-
-    public static void enableStrictMode() {
-        StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
-        StrictMode.setThreadPolicy(policy);
     }
 
     static String generateHash(String input) {
@@ -96,7 +86,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                 value = splitValues[1];
                 matrixCursor.addRow(new String[]{key, value});
             } catch (Exception e) {
-
+                //Do nothing or skip the exception row
             }
         }
         return matrixCursor;
@@ -112,15 +102,6 @@ public class SimpleDynamoProvider extends ContentProvider {
         return id;
     }
 
-    public Future<Client> connectToClient(final int remotePort) {
-        return executorService.submit(new Callable<Client>() {
-            @Override
-            public Client call() throws IOException {
-                return new Client(remotePort);
-            }
-        });
-    }
-
     @Override
     public boolean onCreate() {
         /* All initializations */
@@ -130,20 +111,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         myID = getProcessId();
 
         executorService = Executors.newFixedThreadPool(remotePorts.length);
-        clientTreeMap = new TreeMap<Integer, Client>(new Comparator<Integer>() {
-            @Override
-            public int compare(Integer lhs, Integer rhs) {
-                String lhsHash = generateHash(lhs.toString()),
-                        rhsHash = generateHash(rhs.toString());
-                int result = lhs.compareTo(rhs);
-                if(result > 0)
-                    return  1;
-                else if(result < 0)
-                    return  -1;
-                else
-                    return 0;
-            }
-        });
+        clientHashMap = new HashMap<Integer, Client>(remotePorts.length);
 
         myHash = generateHash(myID.toString());
 
@@ -152,22 +120,19 @@ public class SimpleDynamoProvider extends ContentProvider {
         /* Starts the new server thread */
         new Server().start();
 
-        enableStrictMode();
-
-        /* Small delay to ensure that the server of the node starts
-         * This is to ensure that the AVDs server is up and
-         * can be connected to
-         * */
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        dynamoCommunicator = new DynamoCommunicator(executorService, remotePorts);
 
         /* Attempts to all client sockets with respective servers */
-        for (int remotePort : remotePorts)
-            clientTreeMap.put(remotePort, new Client(remotePort));
-        
+        for (int remotePort : remotePorts) {
+            Client clientObject = null;
+            try {
+                clientObject = dynamoCommunicator.connectToClient(remotePort).get();
+            } catch (Exception e) {
+                Log.e(CREATE_TAG, "Unable to connect to port " + remotePort);
+            } finally {
+                clientHashMap.put(remotePort, clientObject);
+            }
+        }
         return true;
     }
 
@@ -176,31 +141,17 @@ public class SimpleDynamoProvider extends ContentProvider {
                 null, values, SQLiteDatabase.CONFLICT_REPLACE);
     }
 
-    private Boolean belongsToMe(String key) {
-        String keyHash = generateHash(key);
-        // If has neighbours
-        Boolean toReturn = null;
-        return toReturn;
-    }
-
-    public void insertInDHT(ContentValues values) throws IOException {
-        String key = values.getAsString("key"), value = values.getAsString("value");
-//        successor.oos.writeUTF(new Request(myID, key, value, RequestType.INSERT).toString());
-//        successor.oos.flush();
-    }
-
     @Override
     public Uri insert(Uri uri, ContentValues values) {
         Log.d(INSERT_TAG, values.toString());
         String key = values.getAsString("key");
-        if (belongsToMe(key))
-            insertLocal(values);
-        else
-            try {
-                insertInDHT(values);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+        try {
+            dynamoCommunicator.sendRequest(new Request(myID, values, RequestType.INSERT)).get();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } catch (ExecutionException e) {
+            e.printStackTrace();
+        }
         return uri;
     }
 
