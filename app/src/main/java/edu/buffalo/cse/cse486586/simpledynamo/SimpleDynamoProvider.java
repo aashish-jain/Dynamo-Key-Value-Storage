@@ -10,11 +10,15 @@ import android.net.Uri;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Formatter;
 import java.util.HashMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -92,6 +96,13 @@ public class SimpleDynamoProvider extends ContentProvider {
         return matrixCursor;
     }
 
+    private static ContentValues contentValuesFromRequest(Request request) {
+        ContentValues contentValues = new ContentValues();
+        contentValues.put("key", request.getKey());
+        contentValues.put("value", request.getValue());
+        return contentValues;
+    }
+
     private int getProcessId() {
         /* https://stackoverflow.com/questions/10115533/how-to-getsystemservice-within-a-contentprovider-in-android */
         String telephoneNumber =
@@ -130,12 +141,13 @@ public class SimpleDynamoProvider extends ContentProvider {
         }
 
         /* Start the clients */
-        dynamoCommunicator = new DynamoCommunicator(executorService, remotePorts);
+        dynamoCommunicator = new DynamoCommunicator(executorService);
 
         return true;
     }
 
     public long insertLocal(ContentValues values) {
+        Log.d(INSERT_TAG+ "/ASKED", values.toString());
         return dbWriter.insertWithOnConflict(KeyValueStorageContract.KeyValueEntry.TABLE_NAME,
                 null, values, SQLiteDatabase.CONFLICT_REPLACE);
     }
@@ -145,10 +157,8 @@ public class SimpleDynamoProvider extends ContentProvider {
         Log.d(INSERT_TAG, values.toString());
         String key = values.getAsString("key");
         try {
-            dynamoCommunicator.sendRequest(new Request(myID, values, RequestType.INSERT), 0).get();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        } catch (ExecutionException e) {
+            dynamoCommunicator.sendToAllReplicas(new Request(myID, values, RequestType.INSERT));
+        } catch (Exception e) {
             e.printStackTrace();
         }
         return uri;
@@ -161,11 +171,55 @@ public class SimpleDynamoProvider extends ContentProvider {
         return 0;
     }
 
+    public Cursor queryLocal(String key) {
+        String[] selectionArgs = new String[]{key};
+        String selection = KeyValueStorageContract.KeyValueEntry.COLUMN_KEY + " = ?";
+
+        /* https://developer.android.com/training/data-storage/sqlite */
+        Cursor cursor = dbReader.query(
+                KeyValueStorageContract.KeyValueEntry.TABLE_NAME,   // The table to query
+                this.projection,        // The array of columns to return (pass null to get all)
+                selection,              // The columns for the WHERE clause
+                selectionArgs,          // The values for the WHERE clause
+                null,           // don't group the rows
+                null,            // don't filter by row groups
+                null               // The sort order
+        );
+
+        if(cursor.getCount() == 0)
+            Log.e(QUERY_TAG, "No value found in table :(" );
+        return cursor;
+    }
+
+    public Cursor queryAllLocal() {
+        //Query everything
+        return dbReader.query(KeyValueStorageContract.KeyValueEntry.TABLE_NAME, this.projection,
+                null, null, null, null,
+                null, null);
+    }
+
+
     @Override
     public Cursor query(Uri uri, String[] projection, String selection,
                         String[] selectionArgs, String sortOrder) {
-        // TODO Auto-generated method stub
-        return null;
+        Log.d(QUERY_TAG, "Querying " + selection);
+        Cursor cursor = null;
+        if(selection.equals("@")){
+            cursor = queryAllLocal();
+        }
+        else {
+            Request queryRequest = new Request(myID, selection, null, RequestType.QUERY);
+            try {
+                cursor = cursorFromString(dynamoCommunicator.sendToNodeAndWaitForResponse(queryRequest, 0));
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        if(cursor != null && cursor.getCount() == 0)
+            Log.e(QUERY_TAG, "No values found :-(");
+        return cursor;
     }
 
 
@@ -175,4 +229,84 @@ public class SimpleDynamoProvider extends ContentProvider {
         return 0;
     }
 
+    private class Server extends Thread {
+        static final int SERVER_PORT = 10000;
+        static final String TAG = "SERVER_TASK";
+
+        /* https://stackoverflow.com/questions/10131377/socket-programming-multiple-client-to-one-server*/
+
+        public void run() {
+            /* Open a socket at SERVER_PORT */
+            ServerSocket serverSocket = null;
+            try {
+                serverSocket = new ServerSocket(SERVER_PORT);
+                Log.d(TAG, "Server started Listening");
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            synchronized (this) {
+                notify();
+            }
+
+            /* Accept a client connection and spawn a thread to respond */
+            while (true) {
+                try {
+                    Socket socket = serverSocket.accept();
+                    Log.d(TAG, "Incoming connection....");
+                    new ServerThread(socket).start();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    private class ServerThread extends Thread {
+        ObjectOutputStream oos;
+        ObjectInputStream ois;
+
+        static final String TAG = "SERVER_THREAD";
+
+        public ServerThread(Socket socket) {
+            try {
+                this.ois = new ObjectInputStream(socket.getInputStream());
+                this.oos = new ObjectOutputStream(socket.getOutputStream());
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        private void respond(Cursor cursor) throws IOException {
+            oos.writeUTF(cursorToString(cursor));
+            oos.flush();
+        }
+
+        @Override
+        public void run() {
+            //Read from the socket
+            try {
+                while (true) {
+                    Request request = null;
+                    request = new Request(ois.readUTF());
+                    Log.d(TAG, request.toString());
+                    switch (request.getRequestType()) {
+                        case INSERT:
+                            insertLocal(contentValuesFromRequest(request));
+                            break;
+                        case QUERY:
+                            Cursor cursor = queryLocal(request.getHashedKey());
+                            Log.d(TAG, "fetched Cursor " + cursorToString(cursor));
+                            respond(cursor);
+                            break;
+                        default:
+                            Log.d(TAG, "Unknown Operation. :-?");
+                            return;
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
 }

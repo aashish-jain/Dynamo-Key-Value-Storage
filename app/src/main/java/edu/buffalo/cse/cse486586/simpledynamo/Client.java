@@ -16,7 +16,7 @@ class Client {
     private ObjectInputStream ois;
     private ObjectOutputStream oos;
     private boolean connected;
-    static final int timeout = 750;
+    static final int timeout = 1000;
 
     Client(Integer remoteProcessId) throws IOException, NullPointerException {
         /* Establish the connection to server and store it in a Hashmap*/
@@ -29,26 +29,17 @@ class Client {
         oos = new ObjectOutputStream(socket.getOutputStream());
         ois = new ObjectInputStream(socket.getInputStream());
         connected = true;
+        socket.setSoTimeout(0);
     }
 
-    void writeUTF(String stringToWrite) throws IOException {
-        try {
-            this.oos.writeUTF(stringToWrite);
-            this.oos.flush();
-        } catch (IOException e) {
-            this.connected = false;
-            throw e;
-        }
+    void writeUTF(String stringToWrite) throws Exception {
+        this.oos.writeUTF(stringToWrite);
+        this.oos.flush();
     }
 
     String readUTF() throws Exception {
         String readString = null;
-        try {
-            readString = this.ois.readUTF();
-        } catch (IOException e) {
-            this.connected = false;
-            throw e;
-        }
+        readString = this.ois.readUTF();
         return readString;
     }
 

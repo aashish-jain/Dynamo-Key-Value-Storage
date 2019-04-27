@@ -9,29 +9,25 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.TreeMap;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
 
 import static edu.buffalo.cse.cse486586.simpledynamo.SimpleDynamoProvider.generateHash;
 import static edu.buffalo.cse.cse486586.simpledynamo.SimpleDynamoProvider.remotePorts;
 
 
 public final class DynamoCommunicator {
-    static ExecutorService executorService;
     static TreeMap<String, List<Integer>> dynamoTreeMap;
     static HashMap<Integer, Client> clientHashMap;
     static final int replicas = 3;
     static final String DYNAMO_TAG = "DYNAMO";
+    static final String REQUEST_TAG = "REQUEST_TAG";
 
-    DynamoCommunicator(ExecutorService executorService, Integer[] remoteIDs) {
-        this.executorService = executorService;
+    DynamoCommunicator(ExecutorService executorService) {
         this.dynamoTreeMap = new TreeMap<String, List<Integer>>();
-        this.clientHashMap = new HashMap<Integer, Client>(remoteIDs.length);
+        this.clientHashMap = new HashMap<Integer, Client>(remotePorts.length);
 
         /* Sort the array */
-        Arrays.sort(remoteIDs, new Comparator<Integer>() {
+        Arrays.sort(remotePorts, new Comparator<Integer>() {
             @Override
             public int compare(Integer lhs, Integer rhs) {
                 return generateHash(lhs.toString()).compareTo(generateHash(rhs.toString()));
@@ -41,62 +37,73 @@ public final class DynamoCommunicator {
         /* Create the TreeMap with all the AVDs to be contacted for a given key */
         /* Also try connecting to the sockets */
         ArrayList<Integer> remoteList;
-        int numRemotes = remoteIDs.length;
-        for (int i = 0; i < remoteIDs.length; i++) {
+        int numRemotes = remotePorts.length;
+        for (int i = 0; i < remotePorts.length; i++) {
             remoteList = new ArrayList<Integer>(replicas);
 
             Client client = null;
             try {
-                client = connectToClient(remotePorts[i]).get();
+                client = new Client(SimpleDynamoProvider.remotePorts[i]);
             } catch (Exception e) {
-                Log.e(DYNAMO_TAG, "Unable to connect to remote "+ remotePorts[i]);
+                Log.e(DYNAMO_TAG, "Unable to connect to remote " + SimpleDynamoProvider.remotePorts[i]);
             }
 
-            if(client != null)
-                Log.d(DYNAMO_TAG, "Connected to remote " + remotePorts[i]);
+            if (client != null)
+                Log.d(DYNAMO_TAG, "Connected to remote " + SimpleDynamoProvider.remotePorts[i]);
 
-            clientHashMap.put(remotePorts[i], client);
+            clientHashMap.put(SimpleDynamoProvider.remotePorts[i], client);
 
             /* Add all the AVDs until end of ring */
             for (int j = i; remoteList.size() < replicas; j++) {
-                remoteList.add(remoteIDs[j % numRemotes]);
+                remoteList.add(remotePorts[j % numRemotes]);
             }
-            dynamoTreeMap.put(generateHash(remoteIDs[i].toString()), remoteList);
+
+            dynamoTreeMap.put(generateHash(remotePorts[i].toString()), remoteList);
         }
     }
 
+    public List<Integer> getRemoteList(String key) {
+        List<Integer> remoteList = null;
+        try {
+            remoteList = dynamoTreeMap.ceilingEntry(key)
+                    .getValue();
+        } catch (NullPointerException e) {
+            remoteList = dynamoTreeMap.firstEntry().getValue();
+        }
+        return remoteList;
+    }
 
     /* Sends a given request to the given avdNum in the dynamo ring
      * 0 is the coordinator and 1 onwards are replicas */
-    public Future<Void> sendRequest(final Request request, final int remoteNum) {
-        return executorService.submit(new Callable<Void>() {
-            static final String REQUEST_TAG = "REQUEST_TAG";
+    public synchronized boolean sendToAllReplicas(final Request request) throws Exception {
+        List<Integer> remoteList = getRemoteList(request.getHashedKey());
+        Log.d(REQUEST_TAG, "Remote list is " + remoteList);
 
-            @Override
-            public Void call() throws Exception {
-                List<Integer> remoteList = null;
-                remoteList = dynamoTreeMap.ceilingEntry(request.getHashedKey())
-                        .getValue();
-                if(remoteList == null){
-                    remoteList = dynamoTreeMap.firstEntry().getValue();
-                }
-                Log.d(REQUEST_TAG, "Remote list is " + remoteList);
-                int remoteToContact = remoteList.get(remoteNum);
-                if(clientHashMap.get(remoteToContact) == null){
-                        clientHashMap.put(remoteToContact, new Client(remoteToContact));
-                        Log.d(REQUEST_TAG, "Added new remote " + remoteToContact);
-                }
-                return null;
+        for (Integer remoteToContact : remoteList) {
+            if (clientHashMap.get(remoteToContact) == null) {
+                clientHashMap.put(remoteToContact, new Client(remoteToContact));
+                Log.d(REQUEST_TAG, "Added new remote " + remoteToContact);
             }
-        });
+            Client client = clientHashMap.get(remoteToContact);
+            client.writeUTF(request.toString());
+        }
+        return true;
     }
 
-    public Future<Client> connectToClient(final int remotePort) {
-        return executorService.submit(new Callable<Client>() {
-            @Override
-            public Client call() throws IOException {
-                return new Client(remotePort);
-            }
-        });
+    public synchronized String sendToNodeAndWaitForResponse(final Request request, final int remoteNum) throws Exception {
+        List<Integer> remoteList = getRemoteList(request.getHashedKey());
+        int remoteToContact = remoteList.get(remoteNum);
+        if (clientHashMap.get(remoteToContact) == null) {
+            clientHashMap.put(remoteToContact, new Client(remoteToContact));
+            Log.d(REQUEST_TAG, "Added new remote " + remoteToContact);
+        }
+        Client client = clientHashMap.get(remoteToContact);
+        Log.d(REQUEST_TAG, "ASKED " + remoteList.get(remoteNum) + " for value");
+        client.writeUTF(request.toString());
+        Log.d(REQUEST_TAG, " Sent !!!");
+        String response = client.readUTF();
+        Log.d(REQUEST_TAG, "Response " + response);
+        return response;
     }
+
 }
