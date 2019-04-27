@@ -5,8 +5,10 @@ import android.util.Log;
 
 import java.io.IOException;
 
+import static edu.buffalo.cse.cse486586.simpledynamo.Utils.generateHash;
+
 enum RequestType {
-    QUERY, QUERY_ALL, INSERT, DELETE, DELETE_ALL, QUIT;
+    PING, QUERY, QUERY_ALL, INSERT, DELETE, DELETE_ALL, QUIT;
 }
 
 public class Request {
@@ -22,8 +24,8 @@ public class Request {
         this.senderId = senderId;
         this.requestType = requestType;
         this.key = key;
-        if(key != null)
-            this.hashedKey = SimpleDynamoProvider.generateHash(key);
+        if (key != null)
+            this.hashedKey = generateHash(key);
         this.value = value;
     }
 
@@ -42,13 +44,13 @@ public class Request {
         }
     }
 
-    Request(int senderId, ContentValues contentValues, RequestType requestType){
+    Request(int senderId, ContentValues contentValues, RequestType requestType) {
         this.requestType = requestType;
         this.senderId = senderId;
-        this.key =contentValues.getAsString("key");
+        this.key = contentValues.getAsString("key");
         this.value = contentValues.getAsString("value");
-        if(this.key != null){
-            this.hashedKey = SimpleDynamoProvider.generateHash(this.key);
+        if (this.key != null) {
+            this.hashedKey = generateHash(this.key);
         }
     }
 

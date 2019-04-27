@@ -26,13 +26,14 @@ class Client {
     }
 
     void writeUTF(String stringToWrite) throws Exception {
-        this.oos.writeUTF(stringToWrite);
-        this.oos.flush();
+        oos.writeUTF(stringToWrite);
+        oos.flush();
     }
 
     String readUTF() throws Exception {
         String readString = null;
-        readString = this.ois.readUTF();
+        readString = ois.readUTF();
         return readString;
     }
+
 }
