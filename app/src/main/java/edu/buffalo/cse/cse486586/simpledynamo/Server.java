@@ -24,6 +24,10 @@ class Server extends Thread {
             e.printStackTrace();
         }
 
+        synchronized (this){
+            notify();
+        }
+
         /* Accept a client connection and spawn a thread to respond */
         while (true) {
             try {

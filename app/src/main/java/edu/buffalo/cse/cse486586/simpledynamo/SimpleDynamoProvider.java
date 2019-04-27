@@ -117,22 +117,21 @@ public class SimpleDynamoProvider extends ContentProvider {
 
         Log.d(CREATE_TAG, "id is " + myID + " " + myHash);
 
-        /* Starts the new server thread */
-        new Server().start();
+        /* Starts the new server thread and wait for it to start*/
+        Thread serverThread = new Server();
+        serverThread.start();
+        try {
+            Log.d(CREATE_TAG, "Waiting for server to start");
+            synchronized (serverThread) {
+                serverThread.wait();
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
 
+        /* Start the clients */
         dynamoCommunicator = new DynamoCommunicator(executorService, remotePorts);
 
-        /* Attempts to all client sockets with respective servers */
-        for (int remotePort : remotePorts) {
-            Client clientObject = null;
-            try {
-                clientObject = dynamoCommunicator.connectToClient(remotePort).get();
-            } catch (Exception e) {
-                Log.e(CREATE_TAG, "Unable to connect to port " + remotePort);
-            } finally {
-                clientHashMap.put(remotePort, clientObject);
-            }
-        }
         return true;
     }
 
@@ -146,7 +145,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         Log.d(INSERT_TAG, values.toString());
         String key = values.getAsString("key");
         try {
-            dynamoCommunicator.sendRequest(new Request(myID, values, RequestType.INSERT)).get();
+            dynamoCommunicator.sendRequest(new Request(myID, values, RequestType.INSERT), 0).get();
         } catch (InterruptedException e) {
             e.printStackTrace();
         } catch (ExecutionException e) {

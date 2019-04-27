@@ -3,6 +3,7 @@ package edu.buffalo.cse.cse486586.simpledynamo;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.net.InetAddress;
 import java.net.Socket;
 
 import static edu.buffalo.cse.cse486586.simpledynamo.SimpleDynamoProvider.generateHash;
@@ -15,14 +16,16 @@ class Client {
     private ObjectInputStream ois;
     private ObjectOutputStream oos;
     private boolean connected;
-    static final int timeout = 500;
+    static final int timeout = 750;
 
     Client(Integer remoteProcessId) throws IOException, NullPointerException {
         /* Establish the connection to server and store it in a Hashmap*/
         connectedId = remoteProcessId;
         hashedConnectedId = generateHash(remoteProcessId.toString());
         socket = null;
-        socket.setSoTimeout(500);
+        socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
+                remoteProcessId * 2);
+        socket.setSoTimeout(timeout);
         oos = new ObjectOutputStream(socket.getOutputStream());
         ois = new ObjectInputStream(socket.getInputStream());
         connected = true;
@@ -32,7 +35,7 @@ class Client {
         try {
             this.oos.writeUTF(stringToWrite);
             this.oos.flush();
-        } catch (IOException e){
+        } catch (IOException e) {
             this.connected = false;
             throw e;
         }
@@ -42,7 +45,7 @@ class Client {
         String readString = null;
         try {
             readString = this.ois.readUTF();
-        } catch (IOException e){
+        } catch (IOException e) {
             this.connected = false;
             throw e;
         }
@@ -53,7 +56,7 @@ class Client {
         try {
             this.oos.writeBoolean(status);
             this.oos.flush();
-        } catch (Exception e){
+        } catch (Exception e) {
             this.connected = false;
         }
     }
