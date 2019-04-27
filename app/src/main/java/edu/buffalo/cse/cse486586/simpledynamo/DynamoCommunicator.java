@@ -21,8 +21,9 @@ public final class DynamoCommunicator {
     static final int replicas = 3;
     static final String DYNAMO_TAG = "DYNAMO";
     static final String REQUEST_TAG = "REQUEST_TAG";
+    static final String SEND_TO_REPLICAS = "SEND/REPLICAS";
 
-    DynamoCommunicator(ExecutorService executorService) {
+    DynamoCommunicator() {
         this.dynamoTreeMap = new TreeMap<String, List<Integer>>();
         this.clientHashMap = new HashMap<Integer, Client>(remotePorts.length);
 
@@ -73,21 +74,40 @@ public final class DynamoCommunicator {
         return remoteList;
     }
 
-    /* Sends a given request to the given avdNum in the dynamo ring
-     * 0 is the coordinator and 1 onwards are replicas */
+    /* Sends a given request to all replicas in the dynamo ring  for given key */
     public synchronized boolean sendToAllReplicas(final Request request) throws Exception {
         List<Integer> remoteList = getRemoteList(request.getHashedKey());
-        Log.d(REQUEST_TAG, "Remote list is " + remoteList);
+        Log.d(SEND_TO_REPLICAS, "Remote list is " + remoteList);
 
         for (Integer remoteToContact : remoteList) {
+            if (clientHashMap.get(remoteToContact) == null) {
+                clientHashMap.put(remoteToContact, new Client(remoteToContact));
+                Log.d(SEND_TO_REPLICAS, "Added new remote " + remoteToContact);
+            }
+            Client client = clientHashMap.get(remoteToContact);
+            client.writeUTF(request.toString());
+            Log.d(SEND_TO_REPLICAS, "Inserted " + request.toString() + " at " + remoteToContact);
+        }
+        return true;
+    }
+
+    public synchronized String sendToAllNodesAndWait(final Request request) throws Exception {
+        List<Integer> remoteList = getRemoteList(request.getHashedKey());
+        StringBuilder stringBuilder = new StringBuilder();
+        for(Integer remoteToContact : remotePorts) {
             if (clientHashMap.get(remoteToContact) == null) {
                 clientHashMap.put(remoteToContact, new Client(remoteToContact));
                 Log.d(REQUEST_TAG, "Added new remote " + remoteToContact);
             }
             Client client = clientHashMap.get(remoteToContact);
+            Log.d(REQUEST_TAG, "ASKED " + remoteList.get(remoteToContact) + " for value");
             client.writeUTF(request.toString());
+            Log.d(REQUEST_TAG, " Sent !!!");
+            String response = client.readUTF();
+            Log.d(REQUEST_TAG, "Response " + response);
+            stringBuilder.append(response);
         }
-        return true;
+        return stringBuilder.toString();
     }
 
     public synchronized String sendToNodeAndWaitForResponse(final Request request, final int remoteNum) throws Exception {

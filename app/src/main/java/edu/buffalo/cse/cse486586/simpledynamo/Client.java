@@ -29,7 +29,6 @@ class Client {
         oos = new ObjectOutputStream(socket.getOutputStream());
         ois = new ObjectInputStream(socket.getInputStream());
         connected = true;
-        socket.setSoTimeout(0);
     }
 
     void writeUTF(String stringToWrite) throws Exception {

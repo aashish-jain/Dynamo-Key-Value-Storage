@@ -19,8 +19,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Formatter;
 import java.util.HashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class SimpleDynamoProvider extends ContentProvider {
     static KeyValueStorageDBHelper dbHelper;
@@ -31,14 +29,13 @@ public class SimpleDynamoProvider extends ContentProvider {
     static String myHash;
     static DynamoCommunicator dynamoCommunicator;
 
-    static final String DELETE_TAG = "DELETE_TAG", CREATE_TAG = "CREATE_TAG",
-            INSERT_TAG = "INSERT_TAG", QUERY_TAG = "QUERY_TAG", FETCH_TAG = "FETCH";
+    static final String DELETE = "DELETE", CREATE = "CREATE",
+            INSERT = "INSERT", INSERTED = "INSERTED", QUERY = "QUERY", QUERYED = "QUERIED";
     static final String[] projection = new String[]{
             KeyValueStorageContract.KeyValueEntry.COLUMN_KEY,
             KeyValueStorageContract.KeyValueEntry.COLUMN_VALUE
     };
 
-    ExecutorService executorService;
     HashMap<Integer, Client> clientHashMap;
 
     @Override
@@ -121,18 +118,17 @@ public class SimpleDynamoProvider extends ContentProvider {
         dbReader = dbHelper.getReadableDatabase();
         myID = getProcessId();
 
-        executorService = Executors.newFixedThreadPool(remotePorts.length);
         clientHashMap = new HashMap<Integer, Client>(remotePorts.length);
 
         myHash = generateHash(myID.toString());
 
-        Log.d(CREATE_TAG, "id is " + myID + " " + myHash);
+        Log.d(CREATE, "id is " + myID + " " + myHash);
 
         /* Starts the new server thread and wait for it to start*/
         Thread serverThread = new Server();
         serverThread.start();
         try {
-            Log.d(CREATE_TAG, "Waiting for server to start");
+            Log.d(CREATE, "Waiting for server to start");
             synchronized (serverThread) {
                 serverThread.wait();
             }
@@ -141,20 +137,20 @@ public class SimpleDynamoProvider extends ContentProvider {
         }
 
         /* Start the clients */
-        dynamoCommunicator = new DynamoCommunicator(executorService);
+        dynamoCommunicator = new DynamoCommunicator();
 
         return true;
     }
 
     public long insertLocal(ContentValues values) {
-        Log.d(INSERT_TAG+ "/ASKED", values.toString());
+        Log.d(INSERTED, values.toString());
         return dbWriter.insertWithOnConflict(KeyValueStorageContract.KeyValueEntry.TABLE_NAME,
                 null, values, SQLiteDatabase.CONFLICT_REPLACE);
     }
 
     @Override
     public Uri insert(Uri uri, ContentValues values) {
-        Log.d(INSERT_TAG, values.toString());
+        Log.d(INSERT, values.toString());
         String key = values.getAsString("key");
         try {
             dynamoCommunicator.sendToAllReplicas(new Request(myID, values, RequestType.INSERT));
@@ -172,6 +168,7 @@ public class SimpleDynamoProvider extends ContentProvider {
     }
 
     public Cursor queryLocal(String key) {
+        Log.d(QUERYED, "Querying " + key);
         String[] selectionArgs = new String[]{key};
         String selection = KeyValueStorageContract.KeyValueEntry.COLUMN_KEY + " = ?";
 
@@ -186,8 +183,6 @@ public class SimpleDynamoProvider extends ContentProvider {
                 null               // The sort order
         );
 
-        if(cursor.getCount() == 0)
-            Log.e(QUERY_TAG, "No value found in table :(" );
         return cursor;
     }
 
@@ -202,13 +197,20 @@ public class SimpleDynamoProvider extends ContentProvider {
     @Override
     public Cursor query(Uri uri, String[] projection, String selection,
                         String[] selectionArgs, String sortOrder) {
-        Log.d(QUERY_TAG, "Querying " + selection);
+        Log.d(QUERY, "Querying " + selection);
         Cursor cursor = null;
-        if(selection.equals("@")){
+        if (selection.equals("@")) {
             cursor = queryAllLocal();
         }
+        else if (selection.equals("*")){
+            try{
+             cursor = cursorFromString(dynamoCommunicator.sendToAllNodesAndWait(new Request(myID, selection, null, RequestType.QUERY)));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
         else {
-            Request queryRequest = new Request(myID, selection, null, RequestType.QUERY);
+            Request queryRequest = new Request(myID, selection, null, RequestType.QUERY_ALL);
             try {
                 cursor = cursorFromString(dynamoCommunicator.sendToNodeAndWaitForResponse(queryRequest, 0));
             } catch (IOException e) {
@@ -217,8 +219,8 @@ public class SimpleDynamoProvider extends ContentProvider {
                 e.printStackTrace();
             }
         }
-        if(cursor != null && cursor.getCount() == 0)
-            Log.e(QUERY_TAG, "No values found :-(");
+        if (cursor != null && cursor.getCount() == 0)
+            Log.e(QUERY, "No values found :-(");
         return cursor;
     }
 
@@ -286,8 +288,9 @@ public class SimpleDynamoProvider extends ContentProvider {
         public void run() {
             //Read from the socket
             try {
+                Cursor cursor = null;
+                Request request = null;
                 while (true) {
-                    Request request = null;
                     request = new Request(ois.readUTF());
                     Log.d(TAG, request.toString());
                     switch (request.getRequestType()) {
@@ -295,9 +298,20 @@ public class SimpleDynamoProvider extends ContentProvider {
                             insertLocal(contentValuesFromRequest(request));
                             break;
                         case QUERY:
-                            Cursor cursor = queryLocal(request.getHashedKey());
+                            cursor = queryLocal(request.getKey());
                             Log.d(TAG, "fetched Cursor " + cursorToString(cursor));
                             respond(cursor);
+                            break;
+                        case QUERY_ALL:
+                            cursor = queryAllLocal();
+                            Log.d(TAG, "fetched Cursor " + cursorToString(cursor));
+                            respond(cursor);
+                            break;
+                        case DELETE:
+                            break;
+                        case DELETE_ALL:
+                            break;
+                        case QUIT:
                             break;
                         default:
                             Log.d(TAG, "Unknown Operation. :-?");

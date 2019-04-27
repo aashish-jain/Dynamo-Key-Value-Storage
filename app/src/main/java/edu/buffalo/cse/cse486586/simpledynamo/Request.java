@@ -6,7 +6,7 @@ import android.util.Log;
 import java.io.IOException;
 
 enum RequestType {
-    JOIN, QUERY, QUERY_ALL, INSERT, DELETE, DELETE_ALL, QUIT, UPDATE_SUCCESSOR, UPDATE_PREDECESSOR;
+    QUERY, QUERY_ALL, INSERT, DELETE, DELETE_ALL, QUIT;
 }
 
 public class Request {
