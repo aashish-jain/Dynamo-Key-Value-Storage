@@ -17,26 +17,43 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Formatter;
 import java.util.HashMap;
+import java.util.List;
+import java.util.TreeMap;
 
 public class SimpleDynamoProvider extends ContentProvider {
-    static KeyValueStorageDBHelper dbHelper;
-    static SQLiteDatabase dbWriter, dbReader;
     static final int selfProcessIdLen = 4;
     static final Integer[] remotePorts = {5554, 5556, 5558, 5560, 5562};
-    static Integer myID;
-    static String myHash;
-    static DynamoCommunicator dynamoCommunicator;
-
-    static final String DELETE = "DELETE", CREATE = "CREATE",
-            INSERT = "INSERT", INSERTED = "INSERTED", QUERY = "QUERY", QUERYED = "QUERIED";
+    static final int replicas = 3;
+    static final String DELETE = "DELETE", CREATE = "CREATE", REQUEST_TAG = "REQUEST",
+            INSERT = "INSERT", INSERTED = "INSERTED", QUERY = "QUERY", QUERYED = "QUERIED", SEND_TO_REPLICAS = "SEND/REP";
     static final String[] projection = new String[]{
             KeyValueStorageContract.KeyValueEntry.COLUMN_KEY,
             KeyValueStorageContract.KeyValueEntry.COLUMN_VALUE
     };
 
-    HashMap<Integer, Client> clientHashMap;
+    private KeyValueStorageDBHelper dbHelper;
+    private SQLiteDatabase dbWriter, dbReader;
+    private Integer myID;
+    private String myHash;
+    private TreeMap<String, List<Integer>> dynamoTreeMap;
+    private HashMap<Integer, Client> clientHashMap;
+
+    public List<Integer> getRemoteList(String key) {
+        List<Integer> remoteList = null;
+        try {
+            remoteList = dynamoTreeMap.ceilingEntry(key)
+                    .getValue();
+        } catch (NullPointerException e) {
+            remoteList = dynamoTreeMap.firstEntry().getValue();
+        }
+        return remoteList;
+    }
+
 
     @Override
     public String getType(Uri uri) {
@@ -110,6 +127,98 @@ public class SimpleDynamoProvider extends ContentProvider {
         return id;
     }
 
+
+    private  void initializeDynamoTreeMap() {
+        /* Sort the array */
+        Arrays.sort(remotePorts, new Comparator<Integer>() {
+            @Override
+            public int compare(Integer lhs, Integer rhs) {
+                return generateHash(lhs.toString()).compareTo(generateHash(rhs.toString()));
+            }
+        });
+
+        /* Create the TreeMap with all the AVDs to be contacted for a given key */
+        /* Also try connecting to the sockets */
+        ArrayList<Integer> remoteList;
+        int numRemotes = remotePorts.length;
+        for (int i = 0; i < remotePorts.length; i++) {
+            remoteList = new ArrayList<Integer>(replicas);
+
+            Client client = null;
+            try {
+                client = new Client(SimpleDynamoProvider.remotePorts[i]);
+            } catch (Exception e) {
+                Log.e(CREATE, "Unable to connect to remote " + SimpleDynamoProvider.remotePorts[i]);
+            }
+
+            if (client != null)
+                Log.d(CREATE, "Connected to remote " + SimpleDynamoProvider.remotePorts[i]);
+
+            clientHashMap.put(SimpleDynamoProvider.remotePorts[i], client);
+
+            /* Add all the AVDs until end of ring */
+            for (int j = i; remoteList.size() < replicas; j++) {
+                remoteList.add(remotePorts[j % numRemotes]);
+            }
+
+            dynamoTreeMap.put(generateHash(remotePorts[i].toString()), remoteList);
+
+        }
+    }
+
+    /* Sends a given request to all replicas in the dynamo ring  for given key */
+    public synchronized boolean sendToAllReplicas(final Request request) throws Exception {
+        List<Integer> remoteList = getRemoteList(request.getHashedKey());
+        Log.d(SEND_TO_REPLICAS, "Remote list is " + remoteList);
+
+        for (Integer remoteToContact : remoteList) {
+            if (clientHashMap.get(remoteToContact) == null) {
+                clientHashMap.put(remoteToContact, new Client(remoteToContact));
+                Log.d(SEND_TO_REPLICAS, "Added new remote " + remoteToContact);
+            }
+            Client client = clientHashMap.get(remoteToContact);
+            client.writeUTF(request.toString());
+            Log.d(SEND_TO_REPLICAS, "Inserted " + request.toString() + " at " + remoteToContact);
+        }
+        return true;
+    }
+
+    public synchronized String sendToAllNodesAndWait(final Request request) throws Exception {
+        List<Integer> remoteList = getRemoteList(request.getHashedKey());
+        StringBuilder stringBuilder = new StringBuilder();
+        for(Integer remoteToContact : remotePorts) {
+            if (clientHashMap.get(remoteToContact) == null) {
+                clientHashMap.put(remoteToContact, new Client(remoteToContact));
+                Log.d(REQUEST_TAG, "Added new remote " + remoteToContact);
+            }
+            Client client = clientHashMap.get(remoteToContact);
+            Log.d(REQUEST_TAG, "ASKED " + remoteList.get(remoteToContact) + " for value");
+            client.writeUTF(request.toString());
+            Log.d(REQUEST_TAG, " Sent !!!");
+            String response = client.readUTF();
+            Log.d(REQUEST_TAG, "Response " + response);
+            stringBuilder.append(response);
+        }
+        return stringBuilder.toString();
+    }
+
+    public synchronized String sendToNodeAndWaitForResponse(final Request request, final int remoteNum) throws Exception {
+        List<Integer> remoteList = getRemoteList(request.getHashedKey());
+        int remoteToContact = remoteList.get(remoteNum);
+        if (clientHashMap.get(remoteToContact) == null) {
+            clientHashMap.put(remoteToContact, new Client(remoteToContact));
+            Log.d(REQUEST_TAG, "Added new remote " + remoteToContact);
+        }
+        Client client = clientHashMap.get(remoteToContact);
+        Log.d(REQUEST_TAG, "ASKED " + remoteList.get(remoteNum) + " for value");
+        client.writeUTF(request.toString());
+        Log.d(REQUEST_TAG, " Sent !!!");
+        String response = client.readUTF();
+        Log.d(REQUEST_TAG, "Response " + response);
+        return response;
+    }
+
+
     @Override
     public boolean onCreate() {
         /* All initializations */
@@ -118,7 +227,8 @@ public class SimpleDynamoProvider extends ContentProvider {
         dbReader = dbHelper.getReadableDatabase();
         myID = getProcessId();
 
-        clientHashMap = new HashMap<Integer, Client>(remotePorts.length);
+        this.dynamoTreeMap = new TreeMap<String, List<Integer>>();
+        this.clientHashMap = new HashMap<Integer, Client>(remotePorts.length);
 
         myHash = generateHash(myID.toString());
 
@@ -137,7 +247,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         }
 
         /* Start the clients */
-        dynamoCommunicator = new DynamoCommunicator();
+        initializeDynamoTreeMap();
 
         return true;
     }
@@ -153,7 +263,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         Log.d(INSERT, values.toString());
         String key = values.getAsString("key");
         try {
-            dynamoCommunicator.sendToAllReplicas(new Request(myID, values, RequestType.INSERT));
+            sendToAllReplicas(new Request(myID, values, RequestType.INSERT));
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -204,7 +314,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         }
         else if (selection.equals("*")){
             try{
-             cursor = cursorFromString(dynamoCommunicator.sendToAllNodesAndWait(new Request(myID, selection, null, RequestType.QUERY)));
+             cursor = cursorFromString(sendToAllNodesAndWait(new Request(myID, selection, null, RequestType.QUERY)));
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -212,7 +322,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         else {
             Request queryRequest = new Request(myID, selection, null, RequestType.QUERY_ALL);
             try {
-                cursor = cursorFromString(dynamoCommunicator.sendToNodeAndWaitForResponse(queryRequest, 0));
+                cursor = cursorFromString(sendToNodeAndWaitForResponse(queryRequest, 0));
             } catch (IOException e) {
                 e.printStackTrace();
             } catch (Exception e) {
