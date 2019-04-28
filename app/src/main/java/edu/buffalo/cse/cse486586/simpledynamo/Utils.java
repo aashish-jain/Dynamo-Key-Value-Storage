@@ -22,8 +22,7 @@ public class Utils {
                     if (idx < columnsQty - 1)
                         stringBuilder.append(",");
                 }
-                if (cursorCount < cursor.getCount())
-                    stringBuilder.append("\n");
+                stringBuilder.append("\n");
                 cursorCount++;
             } while (cursor.moveToNext());
         }

@@ -34,7 +34,7 @@ public class SimpleDynamoProvider extends ContentProvider {
             KeyValueStorageContract.KeyValueEntry.COLUMN_VALUE
     };
 
-    static final String DELETE = "DELETE", CREATE = "CREATE", REQUEST = "REQUEST",
+    static final String DELETE = "DELETE", DELETED = "DELETED", CREATE = "CREATE", REQUEST = "REQUEST",
             INSERT = "INSERT", INSERTED = "INSERTED", QUERY = "QUERY",
             QUERIED = "QUERIED", SEND_REP = "SEND/REP", CONNECTION = "CONNECTION";
 
@@ -152,6 +152,20 @@ public class SimpleDynamoProvider extends ContentProvider {
         return stringBuilder.toString();
     }
 
+    public synchronized String sendAll(final Request request) throws Exception {
+        List<Integer> remoteList = getReplicaList(request.getHashedKey());
+        StringBuilder stringBuilder = new StringBuilder();
+        for (Integer remoteToContact : remotePorts) {
+            attemptConnection(remoteToContact);
+            Client client = clientMap.get(remoteToContact);
+            Log.d(REQUEST, "ASKED " + remoteToContact + " for value" + request.getRequestType());
+            client.writeUTF(request.toString());
+            Log.d(REQUEST, " Sent !!!");
+        }
+        return stringBuilder.toString();
+    }
+
+
     public synchronized String sendAndGet(final Request request) throws Exception {
         List<Integer> remoteList = getReplicaList(request.getHashedKey());
         int remoteToContact = remoteList.get(0);
@@ -251,7 +265,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         } else if (selection.equals("*")) {
             try {
                 cursor = cursorFromString(sendAndGetAll(new Request(myID, selection, null, RequestType.QUERY_ALL)));
-                Log.d("GOT",cursorToString(cursor));
+                Log.d("GOT", cursorToString(cursor));
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -270,10 +284,38 @@ public class SimpleDynamoProvider extends ContentProvider {
         return cursor;
     }
 
+    public int deleteLocal(String key) {
+        Log.d(DELETED, key);
+        //https://stackoverflow.com/questions/7510219/deleting-row-in-sqlite-in-android
+        return dbWriter.delete(KeyValueStorageContract.KeyValueEntry.TABLE_NAME,
+                KeyValueStorageContract.KeyValueEntry.COLUMN_KEY + "='" + key + "'",
+                null);
+    }
+
+    public int deleteAllLocal() {
+        return dbWriter.delete(KeyValueStorageContract.KeyValueEntry.TABLE_NAME,
+                null, null);
+    }
 
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
-        // TODO Auto-generated method stub
+        //TODO: delete all replicas to???
+        Log.d(DELETE, selection);
+        if (selection.equals("@")) {
+            deleteAllLocal();
+        } else if (selection.equals("*")) {
+            try {
+                sendAndGetAll(new Request(myID, selection, null, RequestType.DELETE_ALL));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        } else {
+            try {
+                sendAllReplicas(new Request(myID, selection, null, RequestType.DELETE));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
         return 0;
     }
 
@@ -356,11 +398,13 @@ public class SimpleDynamoProvider extends ContentProvider {
                             sendReponse(cursor);
                             break;
                         case DELETE:
+                            deleteLocal(request.getKey());
                             break;
                         case DELETE_ALL:
+                            deleteAllLocal();
                             break;
                         case QUIT:
-                            break;
+                            return;
                         default:
                             Log.d(TAG, "Unknown Operation. :-?");
                             return;
