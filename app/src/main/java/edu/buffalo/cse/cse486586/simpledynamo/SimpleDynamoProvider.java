@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.TreeMap;
+import java.util.concurrent.LinkedBlockingQueue;
 
 import static edu.buffalo.cse.cse486586.simpledynamo.Utils.contentValuesFromRequest;
 import static edu.buffalo.cse.cse486586.simpledynamo.Utils.cursorFromString;
@@ -43,6 +44,7 @@ public class SimpleDynamoProvider extends ContentProvider {
     private Integer myID;
     private TreeMap<String, List<Integer>> replicaMap;
     private HashMap<Integer, Client> clientMap;
+    private HashMap<Integer, LinkedBlockingQueue<Request>> failedRequests;
 
     /* Returns a unique process id using the Android telephony service*/
     private int getProcessId() {
@@ -136,7 +138,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         return true;
     }
 
-    public synchronized String sendAndGetAll(final Request request) throws Exception {
+    public synchronized String sendAndGetFromReplicas(final Request request) throws Exception {
         List<Integer> remoteList = getReplicaList(request.getHashedKey());
         StringBuilder stringBuilder = new StringBuilder();
         for (Integer remoteToContact : remotePorts) {
@@ -166,7 +168,7 @@ public class SimpleDynamoProvider extends ContentProvider {
     }
 
 
-    public synchronized String sendAndGet(final Request request) throws Exception {
+    public synchronized String sendAndGetFromOne(final Request request) throws Exception {
         List<Integer> remoteList = getReplicaList(request.getHashedKey());
         int remoteToContact = remoteList.get(0);
         attemptConnection(remoteToContact);
@@ -190,6 +192,11 @@ public class SimpleDynamoProvider extends ContentProvider {
 
         this.replicaMap = new TreeMap<String, List<Integer>>();
         this.clientMap = new HashMap<Integer, Client>(remotePorts.length);
+
+        failedRequests = new HashMap<Integer, LinkedBlockingQueue<Request>>();
+
+        for(Integer remotePort: remotePorts)
+            failedRequests.put(remotePort, new LinkedBlockingQueue<Request>());
 
         Log.d(CREATE, "id is " + myID + " ");
 
@@ -219,6 +226,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 
     @Override
     public Uri insert(Uri uri, ContentValues values) {
+        //TODO: fix for failed nodes
         Log.d(INSERT, values.toString());
         String key = values.getAsString("key");
         try {
@@ -232,7 +240,6 @@ public class SimpleDynamoProvider extends ContentProvider {
     @Override
     public int update(Uri uri, ContentValues values, String selection,
                       String[] selectionArgs) {
-        // TODO Auto-generated method stub
         return 0;
     }
 
@@ -258,13 +265,14 @@ public class SimpleDynamoProvider extends ContentProvider {
     @Override
     public Cursor query(Uri uri, String[] projection, String selection,
                         String[] selectionArgs, String sortOrder) {
+        //TODO: fix for failed nodes
         Log.d(QUERY, "Querying " + selection);
         Cursor cursor = null;
         if (selection.equals("@")) {
             cursor = queryAllLocal();
         } else if (selection.equals("*")) {
             try {
-                cursor = cursorFromString(sendAndGetAll(new Request(myID, selection, null, RequestType.QUERY_ALL)));
+                cursor = cursorFromString(sendAndGetFromReplicas(new Request(myID, selection, null, RequestType.QUERY_ALL)));
                 Log.d("GOT", cursorToString(cursor));
             } catch (Exception e) {
                 e.printStackTrace();
@@ -272,7 +280,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         } else {
             Request queryRequest = new Request(myID, selection, null, RequestType.QUERY);
             try {
-                cursor = cursorFromString(sendAndGet(queryRequest));
+                cursor = cursorFromString(sendAndGetFromOne(queryRequest));
             } catch (IOException e) {
                 e.printStackTrace();
             } catch (Exception e) {
@@ -299,13 +307,13 @@ public class SimpleDynamoProvider extends ContentProvider {
 
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
-        //TODO: delete all replicas to???
+        //TODO: fix for failed nodes
         Log.d(DELETE, selection);
         if (selection.equals("@")) {
             deleteAllLocal();
         } else if (selection.equals("*")) {
             try {
-                sendAndGetAll(new Request(myID, selection, null, RequestType.DELETE_ALL));
+                sendAndGetFromReplicas(new Request(myID, selection, null, RequestType.DELETE_ALL));
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -369,8 +377,13 @@ public class SimpleDynamoProvider extends ContentProvider {
             }
         }
 
-        private void sendReponse(Cursor cursor) throws IOException {
+        private void sendResponse(Cursor cursor) throws IOException {
             oos.writeUTF(cursorToString(cursor));
+            oos.flush();
+        }
+
+        private void sendResponse() throws IOException {
+            oos.writeByte(255);
             oos.flush();
         }
 
@@ -390,18 +403,25 @@ public class SimpleDynamoProvider extends ContentProvider {
                         case QUERY:
                             cursor = queryLocal(request.getKey());
                             Log.d(TAG, "fetched Cursor " + cursorToString(cursor));
-                            sendReponse(cursor);
+                            sendResponse(cursor);
                             break;
                         case QUERY_ALL:
                             cursor = queryAllLocal();
                             Log.d(TAG, "fetched Cursor " + cursorToString(cursor));
-                            sendReponse(cursor);
+                            sendResponse(cursor);
                             break;
                         case DELETE:
                             deleteLocal(request.getKey());
                             break;
                         case DELETE_ALL:
                             deleteAllLocal();
+                            break;
+                        case FETCH_FAILED:
+                            //TODO: Write code for fetching failed requests
+                            break;
+                        case PING:
+                            Log.d(TAG, "PING-PONG");
+                            sendResponse();
                             break;
                         case QUIT:
                             return;
