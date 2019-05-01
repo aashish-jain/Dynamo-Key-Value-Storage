@@ -29,15 +29,22 @@ import static edu.buffalo.cse.cse486586.simpledynamo.Utils.generateHash;
 
 public class SimpleDynamoProvider extends ContentProvider {
     static final Integer[] remotePorts = {5554, 5556, 5558, 5560, 5562};
+    static final List remotePortList = new ArrayList(Arrays.asList(remotePorts));
     static final int selfProcessIdLen = 4, replicas = 3;
     static final String[] projection = new String[]{
             KeyValueStorageContract.KeyValueEntry.COLUMN_KEY,
             KeyValueStorageContract.KeyValueEntry.COLUMN_VALUE
     };
 
+    enum SendType {
+        SEND_ONE, SEND_ALL, SEND_REPLICAS, SEND_AND_GET_ONE,
+        SEND_AND_GET_ALL, SEND_AND_GET_REPLICAS;
+    }
+
     static final String DELETE = "DELETE", DELETED = "DELETED", CREATE = "CREATE", REQUEST = "REQUEST",
             INSERT = "INSERT", INSERTED = "INSERTED", QUERY = "QUERY",
-            QUERIED = "QUERIED", SEND_REP = "SEND/REP", CONNECTION = "CONNECTION";
+            QUERIED = "QUERIED", SEND_REP = "SEND/REP", CONNECTION = "CONNECTION", SEND = "SEND",
+            SEND_AND_GET = "SEND_AND_GET";
 
     private KeyValueStorageDBHelper dbHelper;
     private SQLiteDatabase dbWriter, dbReader;
@@ -124,6 +131,62 @@ public class SimpleDynamoProvider extends ContentProvider {
         }
     }
 
+    public void Send(Request request, SendType type) throws Exception {
+        List<Integer> to_send;
+        switch (type) {
+            case SEND_ONE:
+                int temp = getReplicaList(request.getKey()).get(0);
+                to_send = new ArrayList<Integer>();
+                to_send.add(temp);
+            case SEND_REPLICAS:
+                to_send = getReplicaList(request.getKey());
+                break;
+            case SEND_ALL:
+                to_send = remotePortList;
+                break;
+            default:
+                Log.e(SEND, "Invalid Send Type");
+                return;
+        }
+        for (Integer remote : to_send) {
+            attemptConnection(remote);
+            Client client = clientMap.get(remote);
+            client.writeUTF(request.toString());
+            Log.d(SEND_REP, "Inserted " + request.toString() + " at " + remote);
+        }
+    }
+
+    public String sendAndGet(Request request, SendType type) throws Exception {
+        List<Integer> to_send;
+        switch (type) {
+            case SEND_AND_GET_ONE:
+                int temp = getReplicaList(request.getKey()).get(0);
+                to_send = new ArrayList<Integer>();
+                to_send.add(temp);
+            case SEND_AND_GET_REPLICAS:
+                to_send = getReplicaList(request.getKey());
+                break;
+            case SEND_AND_GET_ALL:
+                to_send = remotePortList;
+                break;
+            default:
+                Log.e(SEND_AND_GET, "Invalid Send Type");
+                return null;
+        }
+
+        StringBuilder stringBuilder = new StringBuilder();
+        for (Integer remote : to_send) {
+            attemptConnection(remote);
+            Client client = clientMap.get(remote);
+            client.writeUTF(request.toString());
+            Log.d(SEND_AND_GET, "Sent " + request.toString());
+            String response = client.readUTF();
+            Log.d(SEND_AND_GET, "Response " + response);
+            stringBuilder.append(response);
+        }
+        return stringBuilder.toString();
+    }
+
     /* Sends a given request to all replicas in the dynamo ring  for given key */
     public synchronized boolean sendAllReplicas(final Request request) throws Exception {
         List<Integer> remoteList = getReplicaList(request.getHashedKey());
@@ -195,7 +258,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 
         failedRequests = new HashMap<Integer, LinkedBlockingQueue<Request>>();
 
-        for(Integer remotePort: remotePorts)
+        for (Integer remotePort : remotePorts)
             failedRequests.put(remotePort, new LinkedBlockingQueue<Request>());
 
         Log.d(CREATE, "id is " + myID + " ");
