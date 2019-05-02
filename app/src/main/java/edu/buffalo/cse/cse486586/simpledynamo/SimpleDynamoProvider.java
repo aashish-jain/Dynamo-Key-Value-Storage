@@ -37,13 +37,12 @@ public class SimpleDynamoProvider extends ContentProvider {
     };
 
     enum SendType {
-        SEND_ONE, SEND_ALL, SEND_REPLICAS, SEND_AND_GET_ONE,
-        SEND_AND_GET_ALL, SEND_AND_GET_REPLICAS;
+        ONE, REPLICAS, ALL;
     }
 
-    static final String DELETE = "DELETE", DELETED = "DELETED", CREATE = "CREATE", REQUEST = "REQUEST",
+    static final String DELETE = "DELETE", DELETED = "DELETED", CREATE = "CREATE",
             INSERT = "INSERT", INSERTED = "INSERTED", QUERY = "QUERY",
-            QUERIED = "QUERIED", SEND_REP = "SEND/REP", CONNECTION = "CONNECTION", SEND = "SEND",
+            QUERIED = "QUERIED", CONNECTION = "CONNECTION", SEND = "SEND",
             SEND_AND_GET = "SEND_AND_GET";
 
     private KeyValueStorageDBHelper dbHelper;
@@ -131,119 +130,44 @@ public class SimpleDynamoProvider extends ContentProvider {
         }
     }
 
-    public void Send(Request request, SendType type) throws Exception {
+    private synchronized String send(Request request, SendType type, boolean get) {
         List<Integer> to_send;
         switch (type) {
-            case SEND_ONE:
-                int temp = getReplicaList(request.getKey()).get(0);
+            case ONE:
+                int temp = getReplicaList(request.getHashedKey()).get(0);
                 to_send = new ArrayList<Integer>();
                 to_send.add(temp);
-            case SEND_REPLICAS:
-                to_send = getReplicaList(request.getKey());
+            case REPLICAS:
+                to_send = getReplicaList(request.getHashedKey());
                 break;
-            case SEND_ALL:
+            case ALL:
                 to_send = remotePortList;
                 break;
             default:
                 Log.e(SEND, "Invalid Send Type");
-                return;
-        }
-        for (Integer remote : to_send) {
-            attemptConnection(remote);
-            Client client = clientMap.get(remote);
-            client.writeUTF(request.toString());
-            Log.d(SEND_REP, "Inserted " + request.toString() + " at " + remote);
-        }
-    }
-
-    public String sendAndGet(Request request, SendType type) throws Exception {
-        List<Integer> to_send;
-        switch (type) {
-            case SEND_AND_GET_ONE:
-                int temp = getReplicaList(request.getKey()).get(0);
-                to_send = new ArrayList<Integer>();
-                to_send.add(temp);
-            case SEND_AND_GET_REPLICAS:
-                to_send = getReplicaList(request.getKey());
-                break;
-            case SEND_AND_GET_ALL:
-                to_send = remotePortList;
-                break;
-            default:
-                Log.e(SEND_AND_GET, "Invalid Send Type");
                 return null;
         }
 
-        StringBuilder stringBuilder = new StringBuilder();
+        StringBuilder stringBuilder = null;
+        if (get)
+            stringBuilder = new StringBuilder();
         for (Integer remote : to_send) {
             attemptConnection(remote);
-            Client client = clientMap.get(remote);
-            client.writeUTF(request.toString());
-            Log.d(SEND_AND_GET, "Sent " + request.toString());
-            String response = client.readUTF();
-            Log.d(SEND_AND_GET, "Response " + response);
-            stringBuilder.append(response);
+            try {
+                Client client = clientMap.get(remote);
+                client.writeUTF(request.toString());
+                Log.d(SEND_AND_GET, "Sent " + request.toString() + " to " + remote);
+                if (get) {
+                    String response = client.readUTF();
+                    Log.d(SEND_AND_GET, "Response " + response);
+                    stringBuilder.append(response);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
-        return stringBuilder.toString();
+        return (get)? stringBuilder.toString() : null;
     }
-
-    /* Sends a given request to all replicas in the dynamo ring  for given key */
-    public synchronized boolean sendAllReplicas(final Request request) throws Exception {
-        List<Integer> remoteList = getReplicaList(request.getHashedKey());
-        Log.d(SEND_REP, "Remote list is " + remoteList);
-
-        for (Integer remoteToContact : remoteList) {
-            attemptConnection(remoteToContact);
-            Client client = clientMap.get(remoteToContact);
-            client.writeUTF(request.toString());
-            Log.d(SEND_REP, "Inserted " + request.toString() + " at " + remoteToContact);
-        }
-        return true;
-    }
-
-    public synchronized String sendAndGetFromReplicas(final Request request) throws Exception {
-        List<Integer> remoteList = getReplicaList(request.getHashedKey());
-        StringBuilder stringBuilder = new StringBuilder();
-        for (Integer remoteToContact : remotePorts) {
-            attemptConnection(remoteToContact);
-            Client client = clientMap.get(remoteToContact);
-            Log.d(REQUEST, "ASKED " + remoteToContact + " for value" + request.getRequestType());
-            client.writeUTF(request.toString());
-            Log.d(REQUEST, " Sent !!!");
-            String response = client.readUTF();
-            Log.d(REQUEST, "Response " + response);
-            stringBuilder.append(response);
-        }
-        return stringBuilder.toString();
-    }
-
-    public synchronized String sendAll(final Request request) throws Exception {
-        List<Integer> remoteList = getReplicaList(request.getHashedKey());
-        StringBuilder stringBuilder = new StringBuilder();
-        for (Integer remoteToContact : remotePorts) {
-            attemptConnection(remoteToContact);
-            Client client = clientMap.get(remoteToContact);
-            Log.d(REQUEST, "ASKED " + remoteToContact + " for value" + request.getRequestType());
-            client.writeUTF(request.toString());
-            Log.d(REQUEST, " Sent !!!");
-        }
-        return stringBuilder.toString();
-    }
-
-
-    public synchronized String sendAndGetFromOne(final Request request) throws Exception {
-        List<Integer> remoteList = getReplicaList(request.getHashedKey());
-        int remoteToContact = remoteList.get(0);
-        attemptConnection(remoteToContact);
-        Client client = clientMap.get(remoteToContact);
-        Log.d(REQUEST, "ASKED " + remoteToContact + " for value");
-        client.writeUTF(request.toString());
-        Log.d(REQUEST, " Sent !!!");
-        String response = client.readUTF();
-        Log.d(REQUEST, "Response " + response);
-        return response;
-    }
-
 
     @Override
     public boolean onCreate() {
@@ -292,8 +216,9 @@ public class SimpleDynamoProvider extends ContentProvider {
         //TODO: fix for failed nodes
         Log.d(INSERT, values.toString());
         String key = values.getAsString("key");
+        Request insertRequest = new Request(myID, values, RequestType.INSERT);
         try {
-            sendAllReplicas(new Request(myID, values, RequestType.INSERT));
+            send(insertRequest, SendType.REPLICAS, false);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -331,21 +256,21 @@ public class SimpleDynamoProvider extends ContentProvider {
         //TODO: fix for failed nodes
         Log.d(QUERY, "Querying " + selection);
         Cursor cursor = null;
+
         if (selection.equals("@")) {
             cursor = queryAllLocal();
         } else if (selection.equals("*")) {
             try {
-                cursor = cursorFromString(sendAndGetFromReplicas(new Request(myID, selection, null, RequestType.QUERY_ALL)));
+                Request queryRequest = new Request(myID, selection, null, RequestType.QUERY_ALL);
+                cursor = cursorFromString(send(queryRequest, SendType.ALL, true));
                 Log.d("GOT", cursorToString(cursor));
             } catch (Exception e) {
                 e.printStackTrace();
             }
         } else {
-            Request queryRequest = new Request(myID, selection, null, RequestType.QUERY);
             try {
-                cursor = cursorFromString(sendAndGetFromOne(queryRequest));
-            } catch (IOException e) {
-                e.printStackTrace();
+                Request queryRequest = new Request(myID, selection, null, RequestType.QUERY);
+                cursor = cursorFromString(send(queryRequest, SendType.ONE, true));
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -376,13 +301,15 @@ public class SimpleDynamoProvider extends ContentProvider {
             deleteAllLocal();
         } else if (selection.equals("*")) {
             try {
-                sendAndGetFromReplicas(new Request(myID, selection, null, RequestType.DELETE_ALL));
+                Request deleteRequest = new Request(myID, selection, null, RequestType.DELETE_ALL);
+                send(deleteRequest, SendType.ALL, false);
             } catch (Exception e) {
                 e.printStackTrace();
             }
         } else {
             try {
-                sendAllReplicas(new Request(myID, selection, null, RequestType.DELETE));
+                Request deleteRequest = new Request(myID, selection, null, RequestType.DELETE);
+                send(deleteRequest, SendType.REPLICAS, false);
             } catch (Exception e) {
                 e.printStackTrace();
             }
