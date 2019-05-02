@@ -65,7 +65,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 
     /* Returns all the nodes where the key is stored*/
     private List<Integer> getReplicaList(String key) {
-        List<Integer> remoteList = null;
+        List<Integer> remoteList;
         try {
             remoteList = replicaMap.ceilingEntry(key)
                     .getValue();
@@ -109,22 +109,9 @@ public class SimpleDynamoProvider extends ContentProvider {
         for (int i = 0; i < remotePorts.length; i++) {
             remoteList = new ArrayList<Integer>(replicas);
 
-            Client client = null;
-            try {
-                client = new Client(SimpleDynamoProvider.remotePorts[i]);
-            } catch (Exception e) {
-                Log.e(CREATE, "Unable to connect to remote " + SimpleDynamoProvider.remotePorts[i]);
-            }
-
-            if (client != null)
-                Log.d(CREATE, "Connected to remote " + SimpleDynamoProvider.remotePorts[i]);
-
-            clientMap.put(SimpleDynamoProvider.remotePorts[i], client);
-
             /* Add all the AVDs until end of ring */
-            for (int j = i; remoteList.size() < replicas; j++) {
+            for (int j = i; remoteList.size() < replicas; j++)
                 remoteList.add(remotePorts[j % numRemotes]);
-            }
 
             replicaMap.put(generateHash(remotePorts[i].toString()), remoteList);
         }
@@ -182,9 +169,20 @@ public class SimpleDynamoProvider extends ContentProvider {
 
         failedRequests = new HashMap<Integer, LinkedBlockingQueue<Request>>();
 
-        for (Integer remotePort : remotePorts)
+        /* Connect to clients if they are up and also initialize LinkedBlockingQueue */
+        for (Integer remotePort : remotePorts) {
             failedRequests.put(remotePort, new LinkedBlockingQueue<Request>());
+            Client client = null;
+            try {
+                client = new Client(remotePort);
+            } catch (Exception e) {
+                Log.e(CREATE, "Unable to connect to remote " + remotePort);
+            }
 
+            if (client != null)
+                Log.d(CREATE, "Connected to remote " + remotePort);
+            clientMap.put(remotePort, client);
+        }
         Log.d(CREATE, "id is " + myID + " ");
 
         /* Starts the new server thread and wait for it to start*/
@@ -201,6 +199,10 @@ public class SimpleDynamoProvider extends ContentProvider {
 
         /* Start the clients */
         initializeDynamoTreeMap();
+
+        /* Fetch Differences */
+        List<Integer> replicas = replicaMap.get(generateHash(myID.toString()));
+
 
         return true;
     }
