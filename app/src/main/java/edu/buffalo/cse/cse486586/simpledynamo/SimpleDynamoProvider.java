@@ -6,6 +6,7 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
+import android.os.StrictMode;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 
@@ -51,6 +52,11 @@ public class SimpleDynamoProvider extends ContentProvider {
     private TreeMap<String, List<Integer>> replicaMap;
     private HashMap<Integer, Client> clientMap;
     private HashMap<Integer, LinkedBlockingQueue<Request>> failedRequests;
+
+    public static void enableStrictMode() {
+        StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
+        StrictMode.setThreadPolicy(policy);
+    }
 
     /* Returns a unique process id using the Android telephony service*/
     private int getProcessId() {
@@ -117,13 +123,14 @@ public class SimpleDynamoProvider extends ContentProvider {
         }
     }
 
-    private synchronized String send(Request request, SendType type, boolean get) {
+    private synchronized String send(Request request, SendType type, boolean get, Integer remotePort) {
         List<Integer> to_send;
         switch (type) {
             case ONE:
-                int temp = getReplicaList(request.getHashedKey()).get(0);
+                if(remotePort == null)
+                    remotePort = getReplicaList(request.getHashedKey()).get(0);
                 to_send = new ArrayList<Integer>();
-                to_send.add(temp);
+                to_send.add(remotePort);
             case REPLICAS:
                 to_send = getReplicaList(request.getHashedKey());
                 break;
@@ -159,6 +166,8 @@ public class SimpleDynamoProvider extends ContentProvider {
     @Override
     public boolean onCreate() {
         /* All initializations */
+        enableStrictMode();
+
         dbHelper = new KeyValueStorageDBHelper(getContext());
         dbWriter = dbHelper.getWritableDatabase();
         dbReader = dbHelper.getReadableDatabase();
@@ -202,8 +211,14 @@ public class SimpleDynamoProvider extends ContentProvider {
 
         /* Fetch Differences */
         List<Integer> replicas = replicaMap.get(generateHash(myID.toString()));
-
-
+        /* Don't consider itself from replicas list */
+        boolean recieved = false;
+        Request fetchRequest = new Request(myID, null, null, RequestType.FETCH_FAILED);
+        for(int i = 1, remote = 0; i < replicas.size(); i++){
+            remote = replicas.get(i);
+            //TODO: Complete code
+//            send(fetchRequest, SendType.ONE,true, remote);
+        }
         return true;
     }
 
@@ -219,7 +234,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         Log.d(INSERT, values.toString());
         String key = values.getAsString("key");
         Request insertRequest = new Request(myID, values, RequestType.INSERT);
-        send(insertRequest, SendType.REPLICAS, false);
+        send(insertRequest, SendType.REPLICAS, false, null);
         return uri;
     }
 
@@ -259,11 +274,11 @@ public class SimpleDynamoProvider extends ContentProvider {
             cursor = queryAllLocal();
         } else if (selection.equals("*")) {
             Request queryRequest = new Request(myID, selection, null, RequestType.QUERY_ALL);
-            cursor = cursorFromString(send(queryRequest, SendType.ALL, true));
+            cursor = cursorFromString(send(queryRequest, SendType.ALL, true, null));
             Log.d("GOT", cursorToString(cursor));
         } else {
             Request queryRequest = new Request(myID, selection, null, RequestType.QUERY);
-            cursor = cursorFromString(send(queryRequest, SendType.ONE, true));
+            cursor = cursorFromString(send(queryRequest, SendType.ONE, true, null));
         }
         if (cursor != null && cursor.getCount() == 0)
             Log.e(QUERY, "No values found :-(");
@@ -291,10 +306,10 @@ public class SimpleDynamoProvider extends ContentProvider {
             deleteAllLocal();
         } else if (selection.equals("*")) {
             Request deleteRequest = new Request(myID, selection, null, RequestType.DELETE_ALL);
-            send(deleteRequest, SendType.ALL, false);
+            send(deleteRequest, SendType.ALL, false, null);
         } else {
             Request deleteRequest = new Request(myID, selection, null, RequestType.DELETE);
-            send(deleteRequest, SendType.REPLICAS, false);
+            send(deleteRequest, SendType.REPLICAS, false, null);
         }
         return 0;
     }
