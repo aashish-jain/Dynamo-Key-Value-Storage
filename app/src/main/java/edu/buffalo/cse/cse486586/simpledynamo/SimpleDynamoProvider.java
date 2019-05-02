@@ -19,9 +19,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.TreeMap;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 import static edu.buffalo.cse.cse486586.simpledynamo.Utils.contentValuesFromRequest;
 import static edu.buffalo.cse.cse486586.simpledynamo.Utils.cursorFromString;
@@ -43,15 +44,14 @@ public class SimpleDynamoProvider extends ContentProvider {
 
     static final String DELETE = "DELETE", DELETED = "DELETED", CREATE = "CREATE",
             INSERT = "INSERT", INSERTED = "INSERTED", QUERY = "QUERY",
-            QUERIED = "QUERIED", CONNECTION = "CONNECTION", SEND = "SEND",
-            SEND_AND_GET = "SEND_AND_GET";
+            QUERIED = "QUERIED", CONNECTION = "CONNECTION", SEND = "SEND", FAILURES = "FAILURES";
 
     private KeyValueStorageDBHelper dbHelper;
     private SQLiteDatabase dbWriter, dbReader;
     private Integer myID;
     private TreeMap<String, List<Integer>> replicaMap;
     private HashMap<Integer, Client> clientMap;
-    private HashMap<Integer, LinkedBlockingQueue<Request>> failedRequests;
+    private HashMap<Integer, ConcurrentLinkedQueue<Request>> failedRequests;
 
     public static void enableStrictMode() {
         StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
@@ -123,11 +123,51 @@ public class SimpleDynamoProvider extends ContentProvider {
         }
     }
 
+    private void fetchFailures() {
+        /* Fetch Differences */
+        List<Integer> replicas = replicaMap.get(generateHash(myID.toString()));
+        /* Don't consider itself from replicas list */
+        boolean recieved = false;
+        Request fetchRequest = new Request(myID, null, null, RequestType.FETCH_FAILED);
+        StringBuilder stringBuilder = new StringBuilder();
+        for (int remote : remotePorts) {
+            if (remote == myID)
+                continue;
+            //TODO: Complete code
+            String response = send(fetchRequest, SendType.ONE, true, remote);
+            if (response != null && response != "" && response.length() > 4) {
+                stringBuilder.append(response);
+            }
+        }
+        String[] operations = stringBuilder.toString().split("\n");
+        Log.d(FAILURES, operations.length + "");
+        HashSet<String> operationSet = new HashSet<String>(Arrays.asList(operations));
+        Request request;
+        for (String operation : operationSet) {
+            try {
+                request = new Request(operation);
+                switch (request.getRequestType()) {
+                    case INSERT:
+                        insertLocal(contentValuesFromRequest(request));
+                        break;
+                    case QUERY:
+                        queryLocal(request.getKey());
+                        break;
+                    case DELETE:
+                        deleteLocal(request.getKey());
+                }
+            } catch (IOException e) {
+                Log.e(CREATE, "Error in fetching messages");
+                e.printStackTrace();
+            }
+        }
+    }
+
     private synchronized String send(Request request, SendType type, boolean get, Integer remotePort) {
         List<Integer> to_send;
         switch (type) {
             case ONE:
-                if(remotePort == null)
+                if (remotePort == null)
                     remotePort = getReplicaList(request.getHashedKey()).get(0);
                 to_send = new ArrayList<Integer>();
                 to_send.add(remotePort);
@@ -150,14 +190,15 @@ public class SimpleDynamoProvider extends ContentProvider {
             try {
                 Client client = clientMap.get(remote);
                 client.writeUTF(request.toString());
-                Log.d(SEND_AND_GET, "Sent " + request.toString() + " to " + remote);
+                Log.d(SEND, "Sent " + request.toString() + " to " + remote);
                 if (get) {
                     String response = client.readUTF();
-                    Log.d(SEND_AND_GET, "Response " + response);
+                    Log.d(SEND, "Response " + response);
                     stringBuilder.append(response);
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                Log.d(SEND, "Possible Failure at node " + remote);
+                failedRequests.get(remote).offer(request);
             }
         }
         return (get) ? stringBuilder.toString() : null;
@@ -176,11 +217,10 @@ public class SimpleDynamoProvider extends ContentProvider {
         this.replicaMap = new TreeMap<String, List<Integer>>();
         this.clientMap = new HashMap<Integer, Client>(remotePorts.length);
 
-        failedRequests = new HashMap<Integer, LinkedBlockingQueue<Request>>();
-
+        failedRequests = new HashMap<Integer, ConcurrentLinkedQueue<Request>>();
         /* Connect to clients if they are up and also initialize LinkedBlockingQueue */
         for (Integer remotePort : remotePorts) {
-            failedRequests.put(remotePort, new LinkedBlockingQueue<Request>());
+            failedRequests.put(remotePort, new ConcurrentLinkedQueue<Request>());
             Client client = null;
             try {
                 client = new Client(remotePort);
@@ -209,16 +249,9 @@ public class SimpleDynamoProvider extends ContentProvider {
         /* Start the clients */
         initializeDynamoTreeMap();
 
-        /* Fetch Differences */
-        List<Integer> replicas = replicaMap.get(generateHash(myID.toString()));
-        /* Don't consider itself from replicas list */
-        boolean recieved = false;
-        Request fetchRequest = new Request(myID, null, null, RequestType.FETCH_FAILED);
-        for(int i = 1, remote = 0; i < replicas.size(); i++){
-            remote = replicas.get(i);
-            //TODO: Complete code
-//            send(fetchRequest, SendType.ONE,true, remote);
-        }
+        /* Fetch Failures*/
+        fetchFailures();
+
         return true;
     }
 
@@ -374,6 +407,20 @@ public class SimpleDynamoProvider extends ContentProvider {
             oos.flush();
         }
 
+        private void sendFailed(int requesterId) throws IOException {
+            //TODO: complete
+            ConcurrentLinkedQueue<Request> queue = failedRequests.get(requesterId);
+            StringBuilder stringBuilder = new StringBuilder();
+            Request request;
+            while (queue.size() > 0) {
+                request = queue.poll();
+                stringBuilder.append(request.toString());
+                stringBuilder.append("\n");
+            }
+            oos.writeUTF(stringBuilder.toString());
+            oos.flush();
+        }
+
         @Override
         public void run() {
             //Read from the socket
@@ -404,6 +451,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                             deleteAllLocal();
                             break;
                         case FETCH_FAILED:
+                            sendFailed(request.getSender());
                             //TODO: Write code for fetching failed requests
                             break;
                         case PING:

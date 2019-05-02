@@ -75,4 +75,8 @@ public class Request {
         return requestType + seperator + senderId + seperator + hashedKey + seperator +
                 key + seperator + value;
     }
+
+    public int getSender(){
+        return senderId;
+    }
 }
