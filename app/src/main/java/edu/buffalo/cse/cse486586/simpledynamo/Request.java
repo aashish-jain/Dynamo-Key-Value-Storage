@@ -66,10 +66,6 @@ public class Request {
         return value;
     }
 
-    public int getSenderId() {
-        return this.senderId;
-    }
-
     public String getHashedKey() {
         return this.hashedKey;
     }

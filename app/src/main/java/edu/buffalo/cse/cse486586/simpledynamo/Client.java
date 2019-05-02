@@ -8,7 +8,6 @@ import java.net.Socket;
 
 class Client {
     private static final String TAG = "CLIENT";
-    private int connectedId;
     private Socket socket;
     private ObjectInputStream ois;
     private ObjectOutputStream oos;
@@ -16,7 +15,6 @@ class Client {
 
     Client(Integer remoteProcessId) throws IOException, NullPointerException {
         /* Establish the connection to server and store it in a Hashmap*/
-        connectedId = remoteProcessId;
         socket = null;
         socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
                 remoteProcessId * 2);
@@ -31,7 +29,7 @@ class Client {
     }
 
     String readUTF() throws Exception {
-        String readString = null;
+        String readString;
         readString = ois.readUTF();
         return readString;
     }

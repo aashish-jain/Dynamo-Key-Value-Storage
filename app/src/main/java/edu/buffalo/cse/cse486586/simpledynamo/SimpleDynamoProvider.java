@@ -166,7 +166,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                 e.printStackTrace();
             }
         }
-        return (get)? stringBuilder.toString() : null;
+        return (get) ? stringBuilder.toString() : null;
     }
 
     @Override
@@ -217,11 +217,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         Log.d(INSERT, values.toString());
         String key = values.getAsString("key");
         Request insertRequest = new Request(myID, values, RequestType.INSERT);
-        try {
-            send(insertRequest, SendType.REPLICAS, false);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        send(insertRequest, SendType.REPLICAS, false);
         return uri;
     }
 
@@ -260,20 +256,12 @@ public class SimpleDynamoProvider extends ContentProvider {
         if (selection.equals("@")) {
             cursor = queryAllLocal();
         } else if (selection.equals("*")) {
-            try {
-                Request queryRequest = new Request(myID, selection, null, RequestType.QUERY_ALL);
-                cursor = cursorFromString(send(queryRequest, SendType.ALL, true));
-                Log.d("GOT", cursorToString(cursor));
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            Request queryRequest = new Request(myID, selection, null, RequestType.QUERY_ALL);
+            cursor = cursorFromString(send(queryRequest, SendType.ALL, true));
+            Log.d("GOT", cursorToString(cursor));
         } else {
-            try {
-                Request queryRequest = new Request(myID, selection, null, RequestType.QUERY);
-                cursor = cursorFromString(send(queryRequest, SendType.ONE, true));
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            Request queryRequest = new Request(myID, selection, null, RequestType.QUERY);
+            cursor = cursorFromString(send(queryRequest, SendType.ONE, true));
         }
         if (cursor != null && cursor.getCount() == 0)
             Log.e(QUERY, "No values found :-(");
@@ -300,19 +288,11 @@ public class SimpleDynamoProvider extends ContentProvider {
         if (selection.equals("@")) {
             deleteAllLocal();
         } else if (selection.equals("*")) {
-            try {
-                Request deleteRequest = new Request(myID, selection, null, RequestType.DELETE_ALL);
-                send(deleteRequest, SendType.ALL, false);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            Request deleteRequest = new Request(myID, selection, null, RequestType.DELETE_ALL);
+            send(deleteRequest, SendType.ALL, false);
         } else {
-            try {
-                Request deleteRequest = new Request(myID, selection, null, RequestType.DELETE);
-                send(deleteRequest, SendType.REPLICAS, false);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            Request deleteRequest = new Request(myID, selection, null, RequestType.DELETE);
+            send(deleteRequest, SendType.REPLICAS, false);
         }
         return 0;
     }

@@ -13,7 +13,6 @@ public class Utils {
     /* https://stackoverflow.com/questions/3105080/output-values-found-in-cursor-to-logcat-android */
     public static String cursorToString(Cursor cursor) {
         StringBuilder stringBuilder = new StringBuilder();
-        int cursorCount = 1;
         if (cursor.moveToFirst()) {
             do {
                 int columnsQty = cursor.getColumnCount();
@@ -23,7 +22,6 @@ public class Utils {
                         stringBuilder.append(",");
                 }
                 stringBuilder.append("\n");
-                cursorCount++;
             } while (cursor.moveToNext());
         }
         return stringBuilder.toString();
