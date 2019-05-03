@@ -132,7 +132,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                 continue;
             String response = send(fetchRequest, SendType.ONE, true, remote);
             if (response != null && response != "") {
-                Log.e(FAILURES, remote + "Response = " + response);
+                Log.e(FAILURES, remote + "Response is \n" + response);
                 stringBuilder.append(response);
             }
         }
@@ -142,7 +142,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 //        HashSet<String> operationSet = new HashSet<String>(operations);
 //        Log.e(FAILURES, operationSet.size() + "");
 //        Log.e(FAILURES, operationSet.toString());
-        Log.e(FAILURES, operations.toString());
+
         Request request;
         for (String operation : operations) {
             try {
@@ -158,7 +158,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                         deleteLocal(request.getKey());
                 }
             } catch (IOException e) {
-                Log.e(CREATE, "Error in fetching messages. Possibly no requests were missed");
+                Log.e(CREATE, "Error in fetching messages. Possibly no Failure occurred");
             }
         }
     }
@@ -307,7 +307,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         } else if (selection.equals("*")) {
             Request queryRequest = new Request(myID, selection, null, RequestType.QUERY_ALL);
             cursor = cursorFromString(send(queryRequest, SendType.ALL, true, null));
-            Log.d("GOT", cursorToString(cursor));
+            Log.d(QUERY, cursorToString(cursor));
         } else {
             Request queryRequest = new Request(myID, selection, null, RequestType.QUERY);
             cursor = cursorFromString(send(queryRequest, SendType.ONE, true, null));
@@ -409,7 +409,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                 stringBuilder.append(request.toString());
                 stringBuilder.append("\n");
             }
-            Log.e(FAILURES, stringBuilder.toString());
+            Log.e(FAILURES, "\n" + stringBuilder.toString());
             oos.writeUTF(stringBuilder.toString());
             oos.flush();
         }
