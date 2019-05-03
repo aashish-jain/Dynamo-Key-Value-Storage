@@ -82,14 +82,13 @@ public class SimpleDynamoProvider extends ContentProvider {
     }
 
     private void attemptConnection(int remoteToContact) {
-        if (!clientMap.containsKey(remoteToContact)) {
+        if (!clientMap.containsKey(remoteToContact))
             try {
                 clientMap.put(remoteToContact, new Client(remoteToContact));
             } catch (IOException e) {
                 Log.e(CONNECTION, "Unable to connect to remote " + remoteToContact);
                 clientMap.remove(remoteToContact);
             }
-        }
     }
 
     /* Returns the type of the given uri (Always String)*/
@@ -130,7 +129,6 @@ public class SimpleDynamoProvider extends ContentProvider {
             if (remote == myID)
                 continue;
             Log.e("SSS", remote + "");
-            //TODO: Complete code
             String response = send(fetchRequest, SendType.ONE, true, remote);
             Log.e("SSS", response);
             if (response != null && response != "" && response.length() > 4) {
@@ -185,7 +183,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         StringBuilder stringBuilder = null;
         if (get)
             stringBuilder = new StringBuilder();
-//        Log.d("TOSEND", to_send.toString());
+        Log.d("TOSEND", to_send.toString());
         for (Integer remote : to_send) {
             attemptConnection(remote);
             try {
@@ -262,7 +260,6 @@ public class SimpleDynamoProvider extends ContentProvider {
 
     @Override
     public Uri insert(Uri uri, ContentValues values) {
-        //TODO: fix for failed nodes
         Log.d(INSERT, values.toString());
         String key = values.getAsString("key");
         Request insertRequest = new Request(myID, values, RequestType.INSERT);
@@ -298,7 +295,6 @@ public class SimpleDynamoProvider extends ContentProvider {
     @Override
     public Cursor query(Uri uri, String[] projection, String selection,
                         String[] selectionArgs, String sortOrder) {
-        //TODO: fix for failed nodes
         Log.d(QUERY, "Querying " + selection);
         Cursor cursor;
 
@@ -332,7 +328,6 @@ public class SimpleDynamoProvider extends ContentProvider {
 
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
-        //TODO: fix for failed nodes
         Log.d(DELETE, selection);
         if (selection.equals("@")) {
             deleteAllLocal();
@@ -402,7 +397,6 @@ public class SimpleDynamoProvider extends ContentProvider {
         }
 
         private void sendFailed(int requesterId) throws IOException {
-            //TODO: complete
             ConcurrentLinkedQueue<Request> queue = failedRequests.get(requesterId);
             StringBuilder stringBuilder = new StringBuilder();
             Request request;
