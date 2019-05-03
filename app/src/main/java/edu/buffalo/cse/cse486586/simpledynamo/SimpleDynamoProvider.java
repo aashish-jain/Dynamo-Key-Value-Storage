@@ -82,12 +82,12 @@ public class SimpleDynamoProvider extends ContentProvider {
     }
 
     private void attemptConnection(int remoteToContact) {
-        Client client = clientMap.get(remoteToContact);
-        if (client == null) {
+        if (!clientMap.containsKey(remoteToContact)) {
             try {
                 clientMap.put(remoteToContact, new Client(remoteToContact));
             } catch (IOException e) {
                 Log.e(CONNECTION, "Unable to connect to remote " + remoteToContact);
+                clientMap.remove(remoteToContact);
             }
         }
     }
@@ -124,24 +124,24 @@ public class SimpleDynamoProvider extends ContentProvider {
     }
 
     private void fetchFailures() {
-        /* Fetch Differences */
-        List<Integer> replicas = replicaMap.get(generateHash(myID.toString()));
-        /* Don't consider itself from replicas list */
-        boolean recieved = false;
         Request fetchRequest = new Request(myID, null, null, RequestType.FETCH_FAILED);
         StringBuilder stringBuilder = new StringBuilder();
         for (int remote : remotePorts) {
             if (remote == myID)
                 continue;
+            Log.e("SSS", remote + "");
             //TODO: Complete code
             String response = send(fetchRequest, SendType.ONE, true, remote);
+            Log.e("SSS", response);
             if (response != null && response != "" && response.length() > 4) {
                 stringBuilder.append(response);
             }
         }
         String[] operations = stringBuilder.toString().split("\n");
-        Log.d(FAILURES, operations.length + "");
+
         HashSet<String> operationSet = new HashSet<String>(Arrays.asList(operations));
+        Log.e(FAILURES, operationSet.size() + "");
+        Log.e(FAILURES, operationSet.toString());
         Request request;
         for (String operation : operationSet) {
             try {
@@ -158,7 +158,6 @@ public class SimpleDynamoProvider extends ContentProvider {
                 }
             } catch (IOException e) {
                 Log.e(CREATE, "Error in fetching messages");
-                e.printStackTrace();
             }
         }
     }
@@ -190,15 +189,25 @@ public class SimpleDynamoProvider extends ContentProvider {
             try {
                 Client client = clientMap.get(remote);
                 client.writeUTF(request.toString());
-                Log.d(SEND, "Sent " + request.toString() + " to " + remote);
+                Log.d(SEND, request.toString() + " to " + remote);
                 if (get) {
                     String response = client.readUTF();
-                    Log.d(SEND, "Response " + response);
-                    stringBuilder.append(response);
+                    if (response.length() > 4) {
+                        Log.d(SEND, "Response " + response);
+                        stringBuilder.append(response);
+                    }
                 }
             } catch (Exception e) {
-                Log.d(SEND, "Possible Failure at node " + remote);
-                failedRequests.get(remote).offer(request);
+                switch (request.getRequestType()) {
+                    case INSERT:
+                    case QUERY:
+                    case DELETE:
+                        failedRequests.get(remote).offer(request);
+//                        Log.e(SEND, "Possible Failure at node " + remote + ". Count = " + failedRequests.get(remote).size());
+                        break;
+                    default:
+//                        Log.e(SEND, "Possible Failure at node " + remote + ". Message not cached");
+                }
             }
         }
         return (get) ? stringBuilder.toString() : null;
@@ -217,23 +226,6 @@ public class SimpleDynamoProvider extends ContentProvider {
         this.replicaMap = new TreeMap<String, List<Integer>>();
         this.clientMap = new HashMap<Integer, Client>(remotePorts.length);
 
-        failedRequests = new HashMap<Integer, ConcurrentLinkedQueue<Request>>();
-        /* Connect to clients if they are up and also initialize LinkedBlockingQueue */
-        for (Integer remotePort : remotePorts) {
-            failedRequests.put(remotePort, new ConcurrentLinkedQueue<Request>());
-            Client client = null;
-            try {
-                client = new Client(remotePort);
-            } catch (Exception e) {
-                Log.e(CREATE, "Unable to connect to remote " + remotePort);
-            }
-
-            if (client != null)
-                Log.d(CREATE, "Connected to remote " + remotePort);
-            clientMap.put(remotePort, client);
-        }
-        Log.d(CREATE, "id is " + myID + " ");
-
         /* Starts the new server thread and wait for it to start*/
         Thread serverThread = new Server();
         serverThread.start();
@@ -248,6 +240,13 @@ public class SimpleDynamoProvider extends ContentProvider {
 
         /* Start the clients */
         initializeDynamoTreeMap();
+
+        failedRequests = new HashMap<Integer, ConcurrentLinkedQueue<Request>>();
+        /* Connect to clients if they are up and also initialize LinkedBlockingQueue */
+        for (Integer remotePort : remotePorts)
+            failedRequests.put(remotePort, new ConcurrentLinkedQueue<Request>());
+        Log.d(CREATE, "id is " + myID + " ");
+
 
         /* Fetch Failures*/
         fetchFailures();
@@ -417,6 +416,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                 stringBuilder.append(request.toString());
                 stringBuilder.append("\n");
             }
+            Log.e(FAILURES, stringBuilder.toString());
             oos.writeUTF(stringBuilder.toString());
             oos.flush();
         }
@@ -452,7 +452,6 @@ public class SimpleDynamoProvider extends ContentProvider {
                             break;
                         case FETCH_FAILED:
                             sendFailed(request.getSender());
-                            //TODO: Write code for fetching failed requests
                             break;
                         case PING:
                             Log.d(TAG, "PING-PONG");
@@ -466,7 +465,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                     }
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                Log.e(TAG, "Possible Client Failure");
             }
         }
     }
