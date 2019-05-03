@@ -453,12 +453,6 @@ public class SimpleDynamoProvider extends ContentProvider {
                         case FETCH_FAILED:
                             sendFailed(request.getSender());
                             break;
-                        case PING:
-                            Log.d(TAG, "PING-PONG");
-                            sendResponse();
-                            break;
-                        case QUIT:
-                            return;
                         default:
                             Log.d(TAG, "Unknown Operation. :-?");
                             return;
