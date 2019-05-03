@@ -88,7 +88,6 @@ public class SimpleDynamoProvider extends ContentProvider {
             if (!clientMap.containsKey(remoteToContact))
                 clientMap.put(remoteToContact, new Client(remoteToContact));
         } catch (Exception e) {
-            e.printStackTrace();
             Log.e(CONNECTION, "Unable to connect to remote " + remoteToContact);
             clientMap.remove(remoteToContact);
         }
@@ -132,18 +131,20 @@ public class SimpleDynamoProvider extends ContentProvider {
             if (remote == myID)
                 continue;
             String response = send(fetchRequest, SendType.ONE, true, remote);
-            Log.e(FAILURES, remote + "Response = " + response);
-            if (response != null && response != "" && response.length() > 4) {
+            if (response != null && response != "") {
+                Log.e(FAILURES, remote + "Response = " + response);
                 stringBuilder.append(response);
             }
         }
-        String[] operations = stringBuilder.toString().split("\n");
 
-        HashSet<String> operationSet = new HashSet<String>(Arrays.asList(operations));
-        Log.e(FAILURES, operationSet.size() + "");
-        Log.e(FAILURES, operationSet.toString());
+        List<String> operations = Arrays.asList(stringBuilder.toString().split("\n"));
+
+//        HashSet<String> operationSet = new HashSet<String>(operations);
+//        Log.e(FAILURES, operationSet.size() + "");
+//        Log.e(FAILURES, operationSet.toString());
+        Log.e(FAILURES, operations.toString());
         Request request;
-        for (String operation : operationSet) {
+        for (String operation : operations) {
             try {
                 request = new Request(operation);
                 switch (request.getRequestType()) {
@@ -157,7 +158,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                         deleteLocal(request.getKey());
                 }
             } catch (IOException e) {
-                Log.e(CREATE, "Error in fetching messages");
+                Log.e(CREATE, "Error in fetching messages. Possibly no requests were missed");
             }
         }
     }
@@ -205,7 +206,6 @@ public class SimpleDynamoProvider extends ContentProvider {
                     failedRequests.get(remote).offer(request);
                     Log.e(SEND, "Possible Failure at node " + remote + ". Count = " + failedRequests.get(remote).size());
                     clientMap.remove(remote);
-                    break;
                 }
             }
         }
