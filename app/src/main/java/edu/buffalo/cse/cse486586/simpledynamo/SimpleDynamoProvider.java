@@ -203,10 +203,10 @@ public class SimpleDynamoProvider extends ContentProvider {
                     case QUERY:
                     case DELETE:
                         failedRequests.get(remote).offer(request);
-//                        Log.e(SEND, "Possible Failure at node " + remote + ". Count = " + failedRequests.get(remote).size());
+                        Log.e(SEND, "Possible Failure at node " + remote + ". Count = " + failedRequests.get(remote).size());
                         break;
                     default:
-//                        Log.e(SEND, "Possible Failure at node " + remote + ". Message not cached");
+                        Log.e(SEND, "Possible Failure at node " + remote + ". Message not cached");
                 }
             }
         }
@@ -300,7 +300,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                         String[] selectionArgs, String sortOrder) {
         //TODO: fix for failed nodes
         Log.d(QUERY, "Querying " + selection);
-        Cursor cursor = null;
+        Cursor cursor;
 
         if (selection.equals("@")) {
             cursor = queryAllLocal();
@@ -401,11 +401,6 @@ public class SimpleDynamoProvider extends ContentProvider {
             oos.flush();
         }
 
-        private void sendResponse() throws IOException {
-            oos.writeByte(255);
-            oos.flush();
-        }
-
         private void sendFailed(int requesterId) throws IOException {
             //TODO: complete
             ConcurrentLinkedQueue<Request> queue = failedRequests.get(requesterId);
@@ -423,10 +418,9 @@ public class SimpleDynamoProvider extends ContentProvider {
 
         @Override
         public void run() {
-            //Read from the socket
+            Cursor cursor;
+            Request request;
             try {
-                Cursor cursor = null;
-                Request request = null;
                 while (true) {
                     request = new Request(ois.readUTF());
                     Log.d(TAG, request.toString());
