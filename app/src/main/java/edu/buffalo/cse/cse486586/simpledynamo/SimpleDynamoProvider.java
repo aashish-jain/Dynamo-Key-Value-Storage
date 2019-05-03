@@ -19,7 +19,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -88,7 +87,6 @@ public class SimpleDynamoProvider extends ContentProvider {
             if (!clientMap.containsKey(remoteToContact))
                 clientMap.put(remoteToContact, new Client(remoteToContact));
         } catch (Exception e) {
-            Log.e(CONNECTION, "Unable to connect to remote " + remoteToContact);
             clientMap.remove(remoteToContact);
         }
     }
@@ -144,23 +142,29 @@ public class SimpleDynamoProvider extends ContentProvider {
 //        Log.e(FAILURES, operationSet.toString());
 
         Request request;
+        int operationCount = 0;
         for (String operation : operations) {
             try {
                 request = new Request(operation);
                 switch (request.getRequestType()) {
                     case INSERT:
                         insertLocal(contentValuesFromRequest(request));
+                        operationCount += 1;
                         break;
                     case QUERY:
                         queryLocal(request.getKey());
+                        operationCount += 1;
                         break;
                     case DELETE:
                         deleteLocal(request.getKey());
+                        operationCount += 1;
+                        break;
                 }
             } catch (IOException e) {
                 Log.e(CREATE, "Error in fetching messages. Possibly no Failure occurred");
             }
         }
+        Log.e("CATCHING-UP", operationCount + "");
     }
 
     private synchronized String send(Request request, SendType type, boolean get, Integer
@@ -195,8 +199,8 @@ public class SimpleDynamoProvider extends ContentProvider {
                 Log.d(SEND, request.toString() + " to " + remote);
                 if (get) {
                     String response = client.readUTF();
-                    if (response.length() > 4) {
-                        Log.d(SEND, "Response " + response);
+                    if (!response.equals("")) {
+                        Log.d(SEND, "Response \n" + response);
                         stringBuilder.append(response);
                     }
                 }
@@ -257,12 +261,13 @@ public class SimpleDynamoProvider extends ContentProvider {
     }
 
     public long insertLocal(ContentValues values) {
+        dbWriter.insertWithOnConflict(KeyValueStorageContract.KeyValueEntry.TABLE_NAME,
+                null, values, SQLiteDatabase.CONFLICT_REPLACE);
         int rows = dbReader.query(KeyValueStorageContract.KeyValueEntry.TABLE_NAME, this.projection,
                 null, null, null, null,
                 null, null).getCount();
         Log.d(INSERTED, values.toString() + "Now have " + rows);
-        return dbWriter.insertWithOnConflict(KeyValueStorageContract.KeyValueEntry.TABLE_NAME,
-                null, values, SQLiteDatabase.CONFLICT_REPLACE);
+        return 0;
     }
 
     @Override
@@ -407,6 +412,7 @@ public class SimpleDynamoProvider extends ContentProvider {
             ConcurrentLinkedQueue<Request> queue = failedRequests.get(requesterId);
             StringBuilder stringBuilder = new StringBuilder();
             Request request;
+            Log.e("CACHE", queue.size() + "");
             while (queue.size() > 0) {
                 request = queue.poll();
                 stringBuilder.append(request.toString());
