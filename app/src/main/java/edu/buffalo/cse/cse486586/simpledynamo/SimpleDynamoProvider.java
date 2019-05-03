@@ -170,6 +170,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                     remotePort = getReplicaList(request.getHashedKey()).get(0);
                 to_send = new ArrayList<Integer>();
                 to_send.add(remotePort);
+                break;
             case REPLICAS:
                 to_send = getReplicaList(request.getHashedKey());
                 break;
@@ -184,6 +185,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         StringBuilder stringBuilder = null;
         if (get)
             stringBuilder = new StringBuilder();
+//        Log.d("TOSEND", to_send.toString());
         for (Integer remote : to_send) {
             attemptConnection(remote);
             try {
@@ -205,8 +207,6 @@ public class SimpleDynamoProvider extends ContentProvider {
                         failedRequests.get(remote).offer(request);
                         Log.e(SEND, "Possible Failure at node " + remote + ". Count = " + failedRequests.get(remote).size());
                         break;
-                    default:
-                        Log.e(SEND, "Possible Failure at node " + remote + ". Message not cached");
                 }
             }
         }
@@ -445,6 +445,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                             deleteAllLocal();
                             break;
                         case FETCH_FAILED:
+                            Log.e("HOLAHOLA", request.toString());
                             sendFailed(request.getSender());
                             break;
                         default:
