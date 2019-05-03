@@ -257,7 +257,10 @@ public class SimpleDynamoProvider extends ContentProvider {
     }
 
     public long insertLocal(ContentValues values) {
-        Log.d(INSERTED, values.toString());
+        int rows = dbReader.query(KeyValueStorageContract.KeyValueEntry.TABLE_NAME, this.projection,
+                null, null, null, null,
+                null, null).getCount();
+        Log.d(INSERTED, values.toString() + "Now have " + rows);
         return dbWriter.insertWithOnConflict(KeyValueStorageContract.KeyValueEntry.TABLE_NAME,
                 null, values, SQLiteDatabase.CONFLICT_REPLACE);
     }
@@ -265,7 +268,6 @@ public class SimpleDynamoProvider extends ContentProvider {
     @Override
     public Uri insert(Uri uri, ContentValues values) {
         Log.d(INSERT, values.toString());
-        String key = values.getAsString("key");
         Request insertRequest = new Request(myID, values, RequestType.INSERT);
         send(insertRequest, SendType.REPLICAS, false, null);
         return uri;
@@ -310,7 +312,8 @@ public class SimpleDynamoProvider extends ContentProvider {
             Log.d(QUERY, cursorToString(cursor));
         } else {
             Request queryRequest = new Request(myID, selection, null, RequestType.QUERY);
-            cursor = cursorFromString(send(queryRequest, SendType.ONE, true, null));
+            /* TODO: Fix some missing messages from avds */
+            cursor = cursorFromString(send(queryRequest, SendType.ALL, true, null));
         }
         if (cursor != null && cursor.getCount() == 0)
             Log.e(QUERY, "No values found :-(");
