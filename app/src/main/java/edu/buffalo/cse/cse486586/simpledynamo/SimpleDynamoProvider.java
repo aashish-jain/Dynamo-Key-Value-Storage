@@ -81,14 +81,17 @@ public class SimpleDynamoProvider extends ContentProvider {
         return remoteList;
     }
 
+    /* If client already not present int the hashmap then adds it if able to contact it
+    * Else if present and alive then sends the message */
     private void attemptConnection(int remoteToContact) {
-        if (!clientMap.containsKey(remoteToContact))
-            try {
+        try {
+            if (!clientMap.containsKey(remoteToContact))
                 clientMap.put(remoteToContact, new Client(remoteToContact));
-            } catch (IOException e) {
-                Log.e(CONNECTION, "Unable to connect to remote " + remoteToContact);
-                clientMap.remove(remoteToContact);
-            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            Log.e(CONNECTION, "Unable to connect to remote " + remoteToContact);
+            clientMap.remove(remoteToContact);
+        }
     }
 
     /* Returns the type of the given uri (Always String)*/
@@ -128,9 +131,8 @@ public class SimpleDynamoProvider extends ContentProvider {
         for (int remote : remotePorts) {
             if (remote == myID)
                 continue;
-            Log.e("SSS", remote + "");
             String response = send(fetchRequest, SendType.ONE, true, remote);
-            Log.e("SSS", response);
+            Log.e(FAILURES, remote + "Response = " + response);
             if (response != null && response != "" && response.length() > 4) {
                 stringBuilder.append(response);
             }
@@ -160,7 +162,8 @@ public class SimpleDynamoProvider extends ContentProvider {
         }
     }
 
-    private synchronized String send(Request request, SendType type, boolean get, Integer remotePort) {
+    private synchronized String send(Request request, SendType type, boolean get, Integer
+            remotePort) {
         List<Integer> to_send;
         switch (type) {
             case ONE:
@@ -180,10 +183,9 @@ public class SimpleDynamoProvider extends ContentProvider {
                 return null;
         }
 
-        StringBuilder stringBuilder = null;
-        if (get)
-            stringBuilder = new StringBuilder();
-        Log.d("TOSEND", to_send.toString());
+
+        StringBuilder stringBuilder = new StringBuilder();
+        Log.d(SEND, "NODES " + to_send.toString());
         for (Integer remote : to_send) {
             attemptConnection(remote);
             try {
@@ -198,17 +200,19 @@ public class SimpleDynamoProvider extends ContentProvider {
                     }
                 }
             } catch (Exception e) {
-                switch (request.getRequestType()) {
-                    case INSERT:
-                    case QUERY:
-                    case DELETE:
-                        failedRequests.get(remote).offer(request);
-                        Log.e(SEND, "Possible Failure at node " + remote + ". Count = " + failedRequests.get(remote).size());
-                        break;
+                RequestType requestType = request.getRequestType();
+                if (requestType == RequestType.INSERT || requestType == RequestType.DELETE) {
+                    failedRequests.get(remote).offer(request);
+                    Log.e(SEND, "Possible Failure at node " + remote + ". Count = " + failedRequests.get(remote).size());
+                    clientMap.remove(remote);
+                    break;
                 }
             }
         }
-        return (get) ? stringBuilder.toString() : null;
+
+        if (!get)
+            return null;
+        return stringBuilder.toString();
     }
 
     @Override
@@ -439,7 +443,6 @@ public class SimpleDynamoProvider extends ContentProvider {
                             deleteAllLocal();
                             break;
                         case FETCH_FAILED:
-                            Log.e("HOLAHOLA", request.toString());
                             sendFailed(request.getSender());
                             break;
                         default:
