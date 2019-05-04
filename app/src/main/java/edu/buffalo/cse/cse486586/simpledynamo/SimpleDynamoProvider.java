@@ -43,13 +43,12 @@ public class SimpleDynamoProvider extends ContentProvider {
 
     static final String DELETE = "DELETE", DELETED = "DELETED", CREATE = "CREATE",
             INSERT = "INSERT", INSERTED = "INSERTED", QUERY = "QUERY",
-            QUERIED = "QUERIED", CONNECTION = "CONNECTION", SEND = "SEND", FAILURES = "FAILURES";
+            QUERIED = "QUERIED", SEND = "SEND", FAILURES = "FAILURES";
 
     private KeyValueStorageDBHelper dbHelper;
     private SQLiteDatabase dbWriter, dbReader;
     private Integer myID;
     private TreeMap<String, List<Integer>> replicaMap;
-    private HashMap<Integer, Client> clientMap;
     private HashMap<Integer, ConcurrentLinkedQueue<Request>> failedRequests;
 
     private static void enableStrictMode() {
@@ -78,22 +77,6 @@ public class SimpleDynamoProvider extends ContentProvider {
             remoteList = replicaMap.firstEntry().getValue();
         }
         return remoteList;
-    }
-
-    /* If client already not present int the hashmap then adds it if able to contact it
-     * Else if present and alive then sends the message */
-    private void attemptConnection(int remoteToContact) {
-        try {
-            if (!clientMap.containsKey(remoteToContact))
-                clientMap.put(remoteToContact, new Client(remoteToContact));
-            else{
-                Client client = clientMap.get(remoteToContact);
-                client.writeUTF(new Request(myID, " ", null, RequestType.QUERY).toString());
-                client.readUTF();
-            }
-        } catch (Exception e) {
-            clientMap.remove(remoteToContact);
-        }
     }
 
     /* Returns the type of the given uri (Always String)*/
@@ -129,39 +112,34 @@ public class SimpleDynamoProvider extends ContentProvider {
 
     private void fetchFailures() {
         Request fetchRequest = new Request(myID, null, null, RequestType.FETCH_FAILED);
-        StringBuilder stringBuilder = new StringBuilder();
         String response = send(fetchRequest, SendType.ALL, true);
-        if (response != null && response != "") {
+        if (response != null && !response.equals("")) {
             Log.e(FAILURES, "Response is \n" + response);
+        } else {
+            return;
         }
 
-
-        List<String> operations = Arrays.asList(response.toString().split("\n"));
+        List<String> operations = Arrays.asList(response.split("\n"));
 
         Request request;
-        int operationCount = 0;
         for (String operation : operations) {
             try {
                 request = new Request(operation);
                 switch (request.getRequestType()) {
                     case INSERT:
                         insertLocal(contentValuesFromRequest(request));
-                        operationCount += 1;
                         break;
                     case QUERY:
                         queryLocal(request.getKey());
-                        operationCount += 1;
                         break;
                     case DELETE:
                         deleteLocal(request.getKey());
-                        operationCount += 1;
                         break;
                 }
             } catch (IOException e) {
                 Log.e(CREATE, "Error in fetching messages. Possibly no Failure occurred");
             }
         }
-        Log.e("MISSED", operationCount + "");
     }
 
     private synchronized String send(Request request, SendType type, boolean get) {
@@ -187,26 +165,25 @@ public class SimpleDynamoProvider extends ContentProvider {
         StringBuilder stringBuilder = new StringBuilder();
         Log.d(SEND, "NODES " + to_send.toString());
         for (Integer remote : to_send) {
-            attemptConnection(remote);
             try {
-                if(!clientMap.containsKey(remote))
-                    throw new Exception("Key not Found");
-                Client client = clientMap.get(remote);
+                Client client = new Client(remote);
                 client.writeUTF(request.toString());
                 Log.d(SEND, request.toString() + " to " + remote);
                 if (get) {
                     String response = client.readUTF();
-                    if (!response.equals("")) {
+                    if (!response.equals("done") && !response.equals(" ")) {
                         stringBuilder.append(response);
+                    } else if (response.equals("done")) {
                     }
                 }
             } catch (Exception e) {
-                clientMap.remove(remote);
-                /* Hack for undetected server crashes */
+                /* Hack for missed messages */
                 RequestType requestType = request.getRequestType();
                 if (requestType == RequestType.INSERT || requestType == RequestType.DELETE) {
                     failedRequests.get(remote).offer(request);
                     Log.e(SEND, "Possible Failure at node " + remote + ". Count = " + failedRequests.get(remote).size());
+                } else {
+                    Log.e(SEND, "Unable to send message to " + remote);
                 }
             }
         }
@@ -227,7 +204,6 @@ public class SimpleDynamoProvider extends ContentProvider {
         myID = getProcessId();
 
         this.replicaMap = new TreeMap<String, List<Integer>>();
-        this.clientMap = new HashMap<Integer, Client>(remotePorts.length);
 
         /* Starts the new server thread and wait for it to start*/
         Thread serverThread = new Server();
@@ -293,7 +269,7 @@ public class SimpleDynamoProvider extends ContentProvider {
     }
 
     private Cursor queryAllLocal() {
-        //Query everything
+        // Query everything
         return dbReader.query(KeyValueStorageContract.KeyValueEntry.TABLE_NAME, this.projection,
                 null, null, null, null,
                 null, null);
@@ -409,7 +385,6 @@ public class SimpleDynamoProvider extends ContentProvider {
             ConcurrentLinkedQueue<Request> queue = failedRequests.get(requesterId);
             StringBuilder stringBuilder = new StringBuilder();
             Request request;
-            Log.e("MISSED_", queue.size() + "");
             while (queue.size() > 0) {
                 request = queue.poll();
                 stringBuilder.append(request.toString());
