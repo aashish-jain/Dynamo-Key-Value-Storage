@@ -76,7 +76,7 @@ public class Request {
                 key + seperator + value;
     }
 
-    public int getSender(){
+    public int getSender() {
         return senderId;
     }
 }

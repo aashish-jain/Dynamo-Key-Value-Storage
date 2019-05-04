@@ -1,6 +1,5 @@
 package edu.buffalo.cse.cse486586.simpledynamo;
 
-import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.InetAddress;
