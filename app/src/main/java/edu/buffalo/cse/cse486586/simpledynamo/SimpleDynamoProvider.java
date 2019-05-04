@@ -266,7 +266,8 @@ public class SimpleDynamoProvider extends ContentProvider {
     public Uri insert(Uri uri, ContentValues values) {
         Log.d(INSERT, values.toString());
         Request insertRequest = new Request(myID, values, RequestType.INSERT);
-        send(insertRequest, SendType.REPLICAS, false, null);
+        String response = send(insertRequest, SendType.REPLICAS, true, null);
+        Log.d(INSERT, response);
         return uri;
     }
 
@@ -400,6 +401,11 @@ public class SimpleDynamoProvider extends ContentProvider {
             oos.flush();
         }
 
+        private void sendResponse(String toSend) throws IOException {
+            oos.writeUTF(toSend);
+            oos.flush();
+        }
+
         private void sendFailed(int requesterId) throws IOException {
             ConcurrentLinkedQueue<Request> queue = failedRequests.get(requesterId);
             StringBuilder stringBuilder = new StringBuilder();
@@ -426,6 +432,8 @@ public class SimpleDynamoProvider extends ContentProvider {
                     switch (request.getRequestType()) {
                         case INSERT:
                             insertLocal(contentValuesFromRequest(request));
+                            oos.writeUTF("SUCCESS");
+                            oos.flush();
                             break;
                         case QUERY:
                             cursor = queryLocal(request.getKey());

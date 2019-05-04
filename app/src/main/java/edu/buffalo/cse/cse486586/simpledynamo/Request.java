@@ -8,7 +8,7 @@ import java.io.IOException;
 import static edu.buffalo.cse.cse486586.simpledynamo.Utils.generateHash;
 
 enum RequestType {
-    QUERY, QUERY_ALL, INSERT, DELETE, DELETE_ALL, FETCH_FAILED;
+    QUERY, QUERY_ALL, INSERT, DELETE, DELETE_ALL, FETCH_FAILED, PING
 }
 
 public class Request {

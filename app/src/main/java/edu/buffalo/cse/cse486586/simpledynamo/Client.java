@@ -11,9 +11,9 @@ class Client {
     private Socket socket;
     private ObjectInputStream ois;
     private ObjectOutputStream oos;
-    static final int timeout = 1000;
+    static final int timeout = 750;
 
-    Client(Integer remoteProcessId) throws IOException, NullPointerException {
+    Client(Integer remoteProcessId) throws Exception {
         /* Establish the connection to server and store it in a Hashmap*/
         socket = null;
         socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
