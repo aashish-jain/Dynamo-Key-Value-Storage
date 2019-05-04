@@ -86,6 +86,11 @@ public class SimpleDynamoProvider extends ContentProvider {
         try {
             if (!clientMap.containsKey(remoteToContact))
                 clientMap.put(remoteToContact, new Client(remoteToContact));
+            else{
+                Client client = clientMap.get(remoteToContact);
+                client.writeUTF(new Request(myID, " ", null, RequestType.QUERY).toString());
+                client.readUTF();
+            }
         } catch (Exception e) {
             clientMap.remove(remoteToContact);
         }
@@ -196,11 +201,12 @@ public class SimpleDynamoProvider extends ContentProvider {
                     }
                 }
             } catch (Exception e) {
+                clientMap.remove(remote);
+                /* Hack for undetected server crashes */
                 RequestType requestType = request.getRequestType();
                 if (requestType == RequestType.INSERT || requestType == RequestType.DELETE) {
                     failedRequests.get(remote).offer(request);
                     Log.e(SEND, "Possible Failure at node " + remote + ". Count = " + failedRequests.get(remote).size());
-                    clientMap.remove(remote);
                 }
             }
         }

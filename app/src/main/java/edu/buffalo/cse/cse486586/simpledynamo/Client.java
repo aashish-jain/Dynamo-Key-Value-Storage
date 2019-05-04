@@ -10,7 +10,7 @@ class Client {
     private Socket socket;
     private ObjectInputStream ois;
     private ObjectOutputStream oos;
-    static final int timeout = 750;
+    static final int timeout = 200;
 
     Client(Integer remoteProcessId) throws Exception {
         /* Establish the connection to server and store it in a Hashmap*/
