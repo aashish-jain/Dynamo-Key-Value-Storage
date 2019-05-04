@@ -125,7 +125,7 @@ public class SimpleDynamoProvider extends ContentProvider {
     private void fetchFailures() {
         Request fetchRequest = new Request(myID, null, null, RequestType.FETCH_FAILED);
         StringBuilder stringBuilder = new StringBuilder();
-        String response = send(fetchRequest, SendType.ALL, true, null);
+        String response = send(fetchRequest, SendType.ALL, true);
         if (response != null && response != "") {
             Log.e(FAILURES, "Response is \n" + response);
         }
@@ -159,13 +159,11 @@ public class SimpleDynamoProvider extends ContentProvider {
         Log.e("MISSED", operationCount + "");
     }
 
-    private String send(Request request, SendType type, boolean get, Integer
-            remotePort) {
+    private String send(Request request, SendType type, boolean get) {
         List<Integer> to_send;
         switch (type) {
             case ONE:
-                if (remotePort == null)
-                    remotePort = getReplicaList(request.getHashedKey()).get(0);
+                int remotePort = getReplicaList(request.getHashedKey()).get(0);
                 to_send = new ArrayList<Integer>();
                 to_send.add(remotePort);
                 break;
@@ -186,6 +184,8 @@ public class SimpleDynamoProvider extends ContentProvider {
         for (Integer remote : to_send) {
             attemptConnection(remote);
             try {
+                if(!clientMap.containsKey(remote))
+                    throw new Exception("Key not Found");
                 Client client = clientMap.get(remote);
                 client.writeUTF(request.toString());
                 Log.d(SEND, request.toString() + " to " + remote);
@@ -265,7 +265,7 @@ public class SimpleDynamoProvider extends ContentProvider {
     public Uri insert(Uri uri, ContentValues values) {
         Log.d(INSERT, values.toString());
         Request insertRequest = new Request(myID, values, RequestType.INSERT);
-        String response = send(insertRequest, SendType.REPLICAS, true, null);
+        String response = send(insertRequest, SendType.REPLICAS, true);
         Log.d(INSERT, response);
         return uri;
     }
@@ -305,12 +305,12 @@ public class SimpleDynamoProvider extends ContentProvider {
             cursor = queryAllLocal();
         } else if (selection.equals("*")) {
             Request queryRequest = new Request(myID, selection, null, RequestType.QUERY_ALL);
-            cursor = cursorFromString(send(queryRequest, SendType.ALL, true, null));
+            cursor = cursorFromString(send(queryRequest, SendType.ALL, true));
             Log.d(QUERY, cursorToString(cursor));
         } else {
             Request queryRequest = new Request(myID, selection, null, RequestType.QUERY);
             /* TODO: Fix some missing messages from avds */
-            cursor = cursorFromString(send(queryRequest, SendType.ALL, true, null));
+            cursor = cursorFromString(send(queryRequest, SendType.ALL, true));
         }
         if (cursor != null && cursor.getCount() == 0)
             Log.e(QUERY, "No values found :-(");
@@ -337,10 +337,10 @@ public class SimpleDynamoProvider extends ContentProvider {
             deleteAllLocal();
         } else if (selection.equals("*")) {
             Request deleteRequest = new Request(myID, selection, null, RequestType.DELETE_ALL);
-            send(deleteRequest, SendType.ALL, false, null);
+            send(deleteRequest, SendType.ALL, false);
         } else {
             Request deleteRequest = new Request(myID, selection, null, RequestType.DELETE);
-            send(deleteRequest, SendType.REPLICAS, false, null);
+            send(deleteRequest, SendType.REPLICAS, false);
         }
         return 0;
     }
