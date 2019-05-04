@@ -81,7 +81,7 @@ public class SimpleDynamoProvider extends ContentProvider {
     }
 
     /* If client already not present int the hashmap then adds it if able to contact it
-    * Else if present and alive then sends the message */
+     * Else if present and alive then sends the message */
     private void attemptConnection(int remoteToContact) {
         try {
             if (!clientMap.containsKey(remoteToContact))
@@ -125,21 +125,13 @@ public class SimpleDynamoProvider extends ContentProvider {
     private void fetchFailures() {
         Request fetchRequest = new Request(myID, null, null, RequestType.FETCH_FAILED);
         StringBuilder stringBuilder = new StringBuilder();
-        for (int remote : remotePorts) {
-            if (remote == myID)
-                continue;
-            String response = send(fetchRequest, SendType.ONE, true, remote);
-            if (response != null && response != "") {
-                Log.e(FAILURES, remote + "Response is \n" + response);
-                stringBuilder.append(response);
-            }
+        String response = send(fetchRequest, SendType.ALL, true, null);
+        if (response != null && response != "") {
+            Log.e(FAILURES, "Response is \n" + response);
         }
 
-        List<String> operations = Arrays.asList(stringBuilder.toString().split("\n"));
 
-//        HashSet<String> operationSet = new HashSet<String>(operations);
-//        Log.e(FAILURES, operationSet.size() + "");
-//        Log.e(FAILURES, operationSet.toString());
+        List<String> operations = Arrays.asList(response.toString().split("\n"));
 
         Request request;
         int operationCount = 0;
@@ -164,7 +156,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                 Log.e(CREATE, "Error in fetching messages. Possibly no Failure occurred");
             }
         }
-        Log.e("CATCHING-UP", operationCount + "");
+        Log.e("MISSED", operationCount + "");
     }
 
     private synchronized String send(Request request, SendType type, boolean get, Integer
@@ -200,7 +192,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                 if (get) {
                     String response = client.readUTF();
                     if (!response.equals("")) {
-                        Log.d(SEND, "Response \n" + response);
+//                        Log.d(SEND, "Response \n" + response);
                         stringBuilder.append(response);
                     }
                 }
@@ -251,7 +243,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         /* Connect to clients if they are up and also initialize LinkedBlockingQueue */
         for (Integer remotePort : remotePorts)
             failedRequests.put(remotePort, new ConcurrentLinkedQueue<Request>());
-        Log.d(CREATE, "id is " + myID + " ");
+        Log.d(CREATE, "id is " + myID + " " + generateHash(myID.toString()));
 
 
         /* Fetch Failures*/
@@ -412,7 +404,7 @@ public class SimpleDynamoProvider extends ContentProvider {
             ConcurrentLinkedQueue<Request> queue = failedRequests.get(requesterId);
             StringBuilder stringBuilder = new StringBuilder();
             Request request;
-            Log.e("CACHE", queue.size() + "");
+            Log.e("MISSED_", queue.size() + "");
             while (queue.size() > 0) {
                 request = queue.poll();
                 stringBuilder.append(request.toString());
