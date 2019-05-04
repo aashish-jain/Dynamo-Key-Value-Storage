@@ -192,7 +192,6 @@ public class SimpleDynamoProvider extends ContentProvider {
                 if (get) {
                     String response = client.readUTF();
                     if (!response.equals("")) {
-//                        Log.d(SEND, "Response \n" + response);
                         stringBuilder.append(response);
                     }
                 }
