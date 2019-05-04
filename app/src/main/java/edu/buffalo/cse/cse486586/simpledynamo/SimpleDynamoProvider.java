@@ -52,7 +52,7 @@ public class SimpleDynamoProvider extends ContentProvider {
     private HashMap<Integer, Client> clientMap;
     private HashMap<Integer, ConcurrentLinkedQueue<Request>> failedRequests;
 
-    public static void enableStrictMode() {
+    private static void enableStrictMode() {
         StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
         StrictMode.setThreadPolicy(policy);
     }
@@ -159,7 +159,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         Log.e("MISSED", operationCount + "");
     }
 
-    private synchronized String send(Request request, SendType type, boolean get, Integer
+    private String send(Request request, SendType type, boolean get, Integer
             remotePort) {
         List<Integer> to_send;
         switch (type) {
@@ -251,7 +251,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         return true;
     }
 
-    public long insertLocal(ContentValues values) {
+    private long insertLocal(ContentValues values) {
         dbWriter.insertWithOnConflict(KeyValueStorageContract.KeyValueEntry.TABLE_NAME,
                 null, values, SQLiteDatabase.CONFLICT_REPLACE);
         int rows = dbReader.query(KeyValueStorageContract.KeyValueEntry.TABLE_NAME, this.projection,
@@ -276,7 +276,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         return 0;
     }
 
-    public Cursor queryLocal(String key) {
+    private Cursor queryLocal(String key) {
         Log.d(QUERIED, "Querying " + key);
         String[] selectionArgs = new String[]{key};
         String selection = KeyValueStorageContract.KeyValueEntry.COLUMN_KEY + " = ?";
@@ -287,7 +287,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         return cursor;
     }
 
-    public Cursor queryAllLocal() {
+    private Cursor queryAllLocal() {
         //Query everything
         return dbReader.query(KeyValueStorageContract.KeyValueEntry.TABLE_NAME, this.projection,
                 null, null, null, null,
@@ -317,7 +317,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         return cursor;
     }
 
-    public int deleteLocal(String key) {
+    private int deleteLocal(String key) {
         Log.d(DELETED, key);
         //https://stackoverflow.com/questions/7510219/deleting-row-in-sqlite-in-android
         return dbWriter.delete(KeyValueStorageContract.KeyValueEntry.TABLE_NAME,
@@ -325,7 +325,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                 null);
     }
 
-    public int deleteAllLocal() {
+    private int deleteAllLocal() {
         return dbWriter.delete(KeyValueStorageContract.KeyValueEntry.TABLE_NAME,
                 null, null);
     }
@@ -351,7 +351,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         static final String TAG = "SERVER_TASK";
 
         /* https://stackoverflow.com/questions/10131377/socket-programming-multiple-client-to-one-server*/
-
+        @Override
         public void run() {
             /* Open a socket at SERVER_PORT */
             ServerSocket serverSocket = null;
@@ -397,11 +397,6 @@ public class SimpleDynamoProvider extends ContentProvider {
 
         private void sendResponse(Cursor cursor) throws IOException {
             oos.writeUTF(cursorToString(cursor));
-            oos.flush();
-        }
-
-        private void sendResponse(String toSend) throws IOException {
-            oos.writeUTF(toSend);
             oos.flush();
         }
 
