@@ -13,10 +13,12 @@ import android.util.Log;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -38,7 +40,7 @@ public class SimpleDynamoProvider extends ContentProvider {
     };
 
     enum SendType {
-        ONE, REPLICAS, ALL;
+        REPLICAS, ALL;
     }
 
     static final String DELETE = "DELETE", DELETED = "DELETED", CREATE = "CREATE",
@@ -113,43 +115,49 @@ public class SimpleDynamoProvider extends ContentProvider {
     private void fetchFailures() {
         Request fetchRequest = new Request(myID, null, null, RequestType.FETCH_FAILED);
         String response = send(fetchRequest, SendType.ALL, true);
-        if (response != null && !response.equals("")) {
-            Log.e(FAILURES, "Response is \n" + response);
-        } else {
+        if (response == null || response.equals(""))
             return;
-        }
 
         List<String> operations = Arrays.asList(response.split("\n"));
 
-        Request request;
+        List<Request> requestList = new ArrayList<Request>(operations.size());
         for (String operation : operations) {
             try {
-                request = new Request(operation);
-                switch (request.getRequestType()) {
-                    case INSERT:
-                        insertLocal(contentValuesFromRequest(request));
-                        break;
-                    case QUERY:
-                        queryLocal(request.getKey());
-                        break;
-                    case DELETE:
-                        deleteLocal(request.getKey());
-                        break;
-                }
+                requestList.add(new Request(operation));
             } catch (IOException e) {
                 Log.e(CREATE, "Error in fetching messages. Possibly no Failure occurred");
             }
         }
+
+        Collections.sort(requestList, new Comparator<Request>() {
+            @Override
+            public int compare(Request lhs, Request rhs) {
+                return new Long(lhs.getTime() - rhs.getTime()).intValue();
+            }
+        });
+
+        Log.d(FAILURES, requestList.toString());
+
+        for (Request request : requestList) {
+            Log.d(FAILURES, request.toString());
+            switch (request.getRequestType()) {
+                case INSERT:
+                    insertLocal(contentValuesFromRequest(request));
+                    break;
+                case QUERY:
+                    queryLocal(request.getKey());
+                    break;
+                case DELETE:
+                    deleteLocal(request.getKey());
+                    break;
+            }
+        }
     }
+
 
     private synchronized String send(Request request, SendType type, boolean get) {
         List<Integer> to_send;
         switch (type) {
-            case ONE:
-                int remotePort = getReplicaList(request.getHashedKey()).get(0);
-                to_send = new ArrayList<Integer>();
-                to_send.add(remotePort);
-                break;
             case REPLICAS:
                 to_send = getReplicaList(request.getHashedKey());
                 break;
@@ -160,7 +168,6 @@ public class SimpleDynamoProvider extends ContentProvider {
                 Log.e(SEND, "Invalid Send Type");
                 return null;
         }
-
 
         StringBuilder stringBuilder = new StringBuilder();
         Log.d(SEND, "NODES " + to_send.toString());
@@ -337,7 +344,11 @@ public class SimpleDynamoProvider extends ContentProvider {
             /* Open a socket at SERVER_PORT */
             ServerSocket serverSocket = null;
             try {
-                serverSocket = new ServerSocket(SERVER_PORT);
+                /* https://stackoverflow.com/questions/24615704/socket-eaddrinuse-address-already-in-use */
+                /* Fix for EADDRINUSE */
+                serverSocket = new ServerSocket();
+                serverSocket.setReuseAddress(true);
+                serverSocket.bind(new InetSocketAddress(SERVER_PORT));
                 Log.d(TAG, "Server started Listening");
             } catch (IOException e) {
                 e.printStackTrace();
@@ -355,7 +366,13 @@ public class SimpleDynamoProvider extends ContentProvider {
                     new ServerThread(socket).start();
                 } catch (IOException e) {
                     e.printStackTrace();
+                    break;
                 }
+            }
+            try {
+                serverSocket.close();
+            } catch (IOException e) {
+                e.printStackTrace();
             }
         }
     }
