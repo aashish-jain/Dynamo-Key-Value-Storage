@@ -159,7 +159,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         Log.e("MISSED", operationCount + "");
     }
 
-    private String send(Request request, SendType type, boolean get) {
+    private synchronized String send(Request request, SendType type, boolean get) {
         List<Integer> to_send;
         switch (type) {
             case ONE:
@@ -265,8 +265,7 @@ public class SimpleDynamoProvider extends ContentProvider {
     public Uri insert(Uri uri, ContentValues values) {
         Log.d(INSERT, values.toString());
         Request insertRequest = new Request(myID, values, RequestType.INSERT);
-        String response = send(insertRequest, SendType.REPLICAS, true);
-        Log.d(INSERT, response);
+        send(insertRequest, SendType.REPLICAS, false);
         return uri;
     }
 
@@ -426,17 +425,13 @@ public class SimpleDynamoProvider extends ContentProvider {
                     switch (request.getRequestType()) {
                         case INSERT:
                             insertLocal(contentValuesFromRequest(request));
-                            oos.writeUTF("SUCCESS");
-                            oos.flush();
                             break;
                         case QUERY:
                             cursor = queryLocal(request.getKey());
-                            Log.d(TAG, "fetched Cursor " + cursorToString(cursor));
                             sendResponse(cursor);
                             break;
                         case QUERY_ALL:
                             cursor = queryAllLocal();
-                            Log.d(TAG, "fetched Cursor " + cursorToString(cursor));
                             sendResponse(cursor);
                             break;
                         case DELETE:
