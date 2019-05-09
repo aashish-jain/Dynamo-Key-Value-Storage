@@ -41,7 +41,7 @@ public class SimpleDynamoProvider extends ContentProvider {
     };
 
     private enum SendType {
-        REPLICAS, ALL;
+        REPLICAS, ALL
     }
 
     private AtomicBoolean recoveryStatus = new AtomicBoolean(true);
