@@ -220,14 +220,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         /* Starts the new server thread and wait for it to start*/
         Thread serverThread = new Server();
         serverThread.start();
-        try {
-            Log.d(CREATE, "Waiting for server to start");
-            synchronized (serverThread) {
-                serverThread.wait();
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        Log.d(CREATE, "Waiting for server to start");
 
         /* Start the clients */
         initializeDynamoTreeMap();
@@ -357,10 +350,6 @@ public class SimpleDynamoProvider extends ContentProvider {
                 Log.d(TAG, "Server started Listening");
             } catch (IOException e) {
                 e.printStackTrace();
-            }
-
-            synchronized (this) {
-                notify();
             }
 
             /* Accept a client connection and spawn a thread to respond */
