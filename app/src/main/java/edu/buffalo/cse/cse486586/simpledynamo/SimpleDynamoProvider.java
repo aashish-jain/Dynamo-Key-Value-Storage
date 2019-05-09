@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static edu.buffalo.cse.cse486586.simpledynamo.Utils.contentValuesFromRequest;
 import static edu.buffalo.cse.cse486586.simpledynamo.Utils.cursorFromString;
@@ -31,19 +32,21 @@ import static edu.buffalo.cse.cse486586.simpledynamo.Utils.cursorToString;
 import static edu.buffalo.cse.cse486586.simpledynamo.Utils.generateHash;
 
 public class SimpleDynamoProvider extends ContentProvider {
-    static final Integer[] remotePorts = {5554, 5556, 5558, 5560, 5562};
-    static final List remotePortList = new ArrayList(Arrays.asList(remotePorts));
-    static final int selfProcessIdLen = 4, replicas = 3;
-    static final String[] projection = new String[]{
+    private static final Integer[] remotePorts = {5554, 5556, 5558, 5560, 5562};
+    private static final List remotePortList = new ArrayList(Arrays.asList(remotePorts));
+    private static final int selfProcessIdLen = 4, replicas = 3;
+    private static final String[] projection = new String[]{
             KeyValueStorageContract.KeyValueEntry.COLUMN_KEY,
             KeyValueStorageContract.KeyValueEntry.COLUMN_VALUE
     };
 
-    enum SendType {
+    private enum SendType {
         REPLICAS, ALL;
     }
 
-    static final String DELETE = "DELETE", DELETED = "DELETED", CREATE = "CREATE",
+    private AtomicBoolean recoveryStatus = new AtomicBoolean(true);
+
+    private static final String DELETE = "DELETE", DELETED = "DELETED", CREATE = "CREATE",
             INSERT = "INSERT", INSERTED = "INSERTED", QUERY = "QUERY",
             QUERIED = "QUERIED", SEND = "SEND", FAILURES = "FAILURES";
 
@@ -236,7 +239,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 
         /* Fetch Failures*/
         fetchFailures();
-
+        recoveryStatus.set(false);
         return true;
     }
 
@@ -418,6 +421,14 @@ public class SimpleDynamoProvider extends ContentProvider {
             Request request;
             try {
                 while (true) {
+                    /* Hack for Waiting for the recovery to complete */
+                    while (recoveryStatus.get()){
+                        try {
+                            Thread.sleep(100);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
                     request = new Request(ois.readUTF());
                     Log.d(TAG, request.toString());
                     switch (request.getRequestType()) {
