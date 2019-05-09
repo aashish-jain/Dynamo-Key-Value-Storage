@@ -173,6 +173,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         }
 
         StringBuilder stringBuilder = new StringBuilder();
+        Request quitRequest = new Request(myID, null, RequestType.QUIT);
         Log.d(SEND, "NODES " + to_send.toString());
         for (Integer remote : to_send) {
             try {
@@ -186,6 +187,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                     } else if (response.equals("done")) {
                     }
                 }
+                client.writeUTF(quitRequest.toString());
             } catch (Exception e) {
                 /* Hack for missed messages */
                 RequestType requestType = request.getRequestType();
@@ -452,6 +454,8 @@ public class SimpleDynamoProvider extends ContentProvider {
                         case FETCH_FAILED:
                             sendFailed(request.getSender());
                             break;
+                        case QUIT:
+                            return;
                         default:
                             Log.d(TAG, "Unknown Operation. :-?");
                             return;

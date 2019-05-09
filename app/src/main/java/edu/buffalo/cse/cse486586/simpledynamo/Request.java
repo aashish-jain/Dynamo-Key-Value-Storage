@@ -8,7 +8,7 @@ import java.io.IOException;
 import static edu.buffalo.cse.cse486586.simpledynamo.Utils.generateHash;
 
 enum RequestType {
-    QUERY, QUERY_ALL, INSERT, DELETE, DELETE_ALL, FETCH_FAILED
+    QUERY, QUERY_ALL, INSERT, DELETE, DELETE_ALL, FETCH_FAILED, QUIT
 }
 
 public class Request {
@@ -51,8 +51,10 @@ public class Request {
         this.time = System.currentTimeMillis();
         this.requestType = requestType;
         this.senderId = senderId;
-        this.key = contentValues.getAsString("key");
-        this.value = contentValues.getAsString("value");
+        if(contentValues!=null) {
+            this.key = contentValues.getAsString("key");
+            this.value = contentValues.getAsString("value");
+        }
         if (this.key != null) {
             this.hashedKey = generateHash(this.key);
         }
