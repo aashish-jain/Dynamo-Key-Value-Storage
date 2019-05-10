@@ -233,7 +233,10 @@ public class SimpleDynamoProvider extends ContentProvider {
         /* Fetch Failures*/
         fetchFailures();
         recoveryStatus.set(false);
-        recoveryStatus.notifyAll();
+
+        synchronized (recoveryStatus) {
+            recoveryStatus.notifyAll();
+        }
         return true;
     }
 
@@ -415,7 +418,9 @@ public class SimpleDynamoProvider extends ContentProvider {
                     request = new Request(ois.readUTF());
                     if(recoveryStatus.get()) {
                         try {
-                            recoveryStatus.wait();
+                            synchronized (recoveryStatus) {
+                                recoveryStatus.wait();
+                            }
                         } catch (InterruptedException e) {
                             e.printStackTrace();
                         }
