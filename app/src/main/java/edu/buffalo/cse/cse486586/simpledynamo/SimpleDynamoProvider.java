@@ -24,7 +24,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static edu.buffalo.cse.cse486586.simpledynamo.Utils.contentValuesFromRequest;
