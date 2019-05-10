@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static edu.buffalo.cse.cse486586.simpledynamo.Utils.contentValuesFromRequest;
@@ -182,10 +183,8 @@ public class SimpleDynamoProvider extends ContentProvider {
                 Log.d(SEND, request.toString() + " to " + remote);
                 if (get) {
                     String response = client.readUTF();
-                    if (!response.equals("done") && !response.equals(" ")) {
+                    if (!response.equals("done") && !response.equals(" "))
                         stringBuilder.append(response);
-                    } else if (response.equals("done")) {
-                    }
                 }
                 client.writeUTF(quitRequest.toString());
             } catch (Exception e) {
@@ -235,6 +234,7 @@ public class SimpleDynamoProvider extends ContentProvider {
         /* Fetch Failures*/
         fetchFailures();
         recoveryStatus.set(false);
+        recoveryStatus.notifyAll();
         return true;
     }
 
@@ -413,9 +413,9 @@ public class SimpleDynamoProvider extends ContentProvider {
             try {
                 while (true) {
                     /* Hack for Waiting for the recovery to complete */
-                    while (recoveryStatus.get()){
+                    if(recoveryStatus.get()) {
                         try {
-                            Thread.sleep(100);
+                            recoveryStatus.wait();
                         } catch (InterruptedException e) {
                             e.printStackTrace();
                         }
