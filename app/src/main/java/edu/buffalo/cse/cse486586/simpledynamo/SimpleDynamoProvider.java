@@ -413,6 +413,7 @@ public class SimpleDynamoProvider extends ContentProvider {
             try {
                 while (true) {
                     /* Hack for Waiting for the recovery to complete */
+                    request = new Request(ois.readUTF());
                     if(recoveryStatus.get()) {
                         try {
                             recoveryStatus.wait();
@@ -420,7 +421,6 @@ public class SimpleDynamoProvider extends ContentProvider {
                             e.printStackTrace();
                         }
                     }
-                    request = new Request(ois.readUTF());
                     Log.d(TAG, request.toString());
                     switch (request.getRequestType()) {
                         case INSERT:
